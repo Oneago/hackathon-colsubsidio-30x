@@ -4,6 +4,22 @@ Optimiza y hace confiable el **conteo físico de inventario** en bodegas de hote
 **eliminando el sesgo de confirmación**: el personal de campo nunca ve la cantidad
 del ERP; cuenta a ciegas y el sistema compara después.
 
+## Contexto — Hackathon Colsubsidio × 30X · Reto 4 (Hotelería)
+
+Este proyecto resuelve el **Reto 4 — Hotelería** del [Hackathon Colsubsidio × 30X](https://innovacion.colsubsidio.com/#hero)
+(Bogotá, 22–26 de julio de 2026).
+
+> En las bodegas de los hoteles y parques de Colsubsidio, la toma física de inventario
+> depende de una **cadena de captura manual**: alguien cuenta producto por producto y lo
+> anota en papel, otra persona lo digita en el sistema y otra lo revisa. Cada eslabón
+> introduce errores costosos y descuadres de inventario.
+
+**Objetivo del reto:** permitir que el personal registre el conteo **sin papel**, reduciendo
+errores de digitación y descuadres. Nuestra solución va un paso más allá y ataca la causa de
+fondo — el **sesgo de confirmación** — haciendo que quien cuenta lo haga **a ciegas** (sin ver
+la cantidad del ERP), con captura por **voz** y **escaneo** desde una app móvil, y reconciliación
+automática en la consola web.
+
 ## Arquitectura
 
 | Componente | Stack | Rol |
