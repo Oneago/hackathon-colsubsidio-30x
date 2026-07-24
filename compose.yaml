@@ -1,0 +1,71 @@
+# Base (agnóstica de entorno). Compose v2 — sin clave `version:`.
+# Dev:  docker compose up                                  (fusiona compose.override.yaml)
+# Prod: docker compose -f compose.yaml -f compose.prod.yaml up
+name: inventario-colsubsidio
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./api
+      target: runtime
+    env_file: .env
+    # Entrypoint aplica migraciones Alembic y luego arranca Uvicorn (CMD).
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - audio_store:${AUDIO_DIR}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./web
+    env_file: .env
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Job de un solo uso: carga el dataset. Idempotente (re-ejecutable sin duplicar).
+  seed:
+    build:
+      context: ./api
+      target: runtime
+    env_file: .env
+    entrypoint: ["python", "-m", "app.seed.seed"]
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./dataset:/dataset:ro
+      - audio_store:${AUDIO_DIR}
+    restart: "no"
+
+volumes:
+  pgdata:
+  audio_store:

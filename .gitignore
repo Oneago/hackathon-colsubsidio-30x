@@ -7,12 +7,26 @@ __pycache__/
 .venv/
 venv/
 env/
+.pytest_cache/
+*.egg-info/
 
 # Node
 node_modules/
 dist/
+
+# Salidas de compilación de TypeScript (tsc -b)
+*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+
+# Entorno: se ignora .env pero se versiona .env.example
 .env
 .env.*
+!.env.example
+
+# Volúmenes / datos generados
+/data/
+audio_store/
 
 # Editor
 .vscode/

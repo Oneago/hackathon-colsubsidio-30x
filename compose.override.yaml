@@ -1,0 +1,44 @@
+# Desarrollo (se fusiona automáticamente con `docker compose up`).
+# Bind mounts + hot reload + puertos publicados en el host.
+services:
+  db:
+    ports:
+      - "${POSTGRES_PORT}:5432"
+
+  api:
+    build:
+      target: dev
+    # Código montado para hot reload; el venv vive en /opt/venv (no se pisa).
+    volumes:
+      - ./api:/app
+      - ./dataset:/dataset:ro
+      - audio_store:${AUDIO_DIR}
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    ports:
+      - "${API_PUBLISHED_PORT}:8000"
+    environment:
+      APP_ENV: development
+
+  seed:
+    build:
+      target: dev
+    volumes:
+      - ./api:/app
+      - ./dataset:/dataset:ro
+      - audio_store:${AUDIO_DIR}
+
+  web:
+    build:
+      target: dev
+    # Imagen propia de dev (node+vite): NO comparte tag con la de prod (nginx),
+    # para que construir un entorno no pise la imagen del otro.
+    image: inventario-colsubsidio-web:dev
+    # Código montado para hot reload; node_modules de la imagen (volumen anónimo).
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+    environment:
+      VITE_API_BASE_URL: http://localhost:${API_PUBLISHED_PORT}
+    ports:
+      - "${WEB_PUBLISHED_PORT}:5173"
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
