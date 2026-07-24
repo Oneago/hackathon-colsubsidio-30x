@@ -1,0 +1,42 @@
+# Producción (uso explícito):
+#   docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+# Imágenes construidas, SIN código montado, reinicio automático.
+# Despliegue local por ahora: reverse proxy + TLS quedan como pieza opcional
+# a activar en la Fase 5 (p. ej. Caddy/Traefik) cuando se defina el host.
+services:
+  db:
+    restart: unless-stopped
+    # En prod no se publica el puerto de la base hacia el host.
+    ports: []
+
+  api:
+    build:
+      target: runtime
+    restart: unless-stopped
+    # Sin bind mount de código: solo el volumen de audios persistente.
+    volumes:
+      - ./dataset:/dataset:ro
+      - audio_store:${AUDIO_DIR}
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "${API_PUBLISHED_PORT}:8000"
+    environment:
+      APP_ENV: production
+
+  seed:
+    build:
+      target: runtime
+    volumes:
+      - ./dataset:/dataset:ro
+      - audio_store:${AUDIO_DIR}
+
+  web:
+    build:
+      target: runtime
+      args:
+        VITE_API_BASE_URL: http://localhost:${API_PUBLISHED_PORT}
+    # Imagen propia de prod (nginx): tag distinto al de dev (node+vite).
+    image: inventario-colsubsidio-web:prod
+    restart: unless-stopped
+    ports:
+      - "${WEB_PUBLISHED_PORT}:80"

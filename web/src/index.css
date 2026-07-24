@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Tokens Colsubsidio (DESIGN.md): azul marca/estructura, amarillo acento (~10%,
+   texto oscuro por WCAG), grafito para neutros. Valores HSL derivados de los HEX. */
+@layer base {
+  :root {
+    --background: 210 17% 98%;        /* fondo #f8f9fa */
+    --foreground: 210 11% 15%;        /* texto #212529 */
+    --card: 0 0% 100%;                /* superficie #ffffff */
+    --card-foreground: 210 11% 15%;
+    --primary: 205 100% 35%;          /* azul #0067b1 */
+    --primary-foreground: 0 0% 100%;  /* texto blanco sobre azul (contraste 5.87 AA) */
+    --secondary: 210 17% 95%;
+    --secondary-foreground: 205 100% 28%;
+    --muted: 210 17% 95%;
+    --muted-foreground: 0 0% 34%;     /* grafito #575756 */
+    --accent: 210 17% 94%;            /* hover neutro (el amarillo se reserva para CTAs) */
+    --accent-foreground: 210 11% 15%;
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 210 14% 89%;            /* borde #dee2e6 */
+    --input: 210 14% 89%;
+    --ring: 205 100% 35%;             /* foco azul visible */
+    --radius: 0.5rem;
+
+    /* Acento de marca (amarillo). Regla WCAG: NUNCA texto blanco sobre amarillo. */
+    --brand-accent: 49 100% 50%;              /* amarillo #ffd000 */
+    --brand-accent-foreground: 0 0% 20%;      /* grafito-700 #343434 (contraste ~9:1) */
+    --brand-accent-hover: 49 100% 40%;        /* amarillo-600 #cca600 */
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "_comment": [
+    "Mapeo MANUAL de las 8 hojas de stock del ERP a bodegas.",
+    "Para cada slug de stock:",
+    "  - bodega_id_erp: id (de las 48 bodegas del dataset) a la que pertenece este stock.",
+    "  - null => el seed crea una bodega dedicada usando 'nombre'.",
+    "Solo 'zoologico_suministros' coincide 1:1 por nombre con una bodega del listado;",
+    "el resto son provisionales y editables por el equipo de negocio."
+  ],
+  "map": {
+    "stock_almacen_suministros": { "bodega_id_erp": null, "nombre": "Almacén Suministros" },
+    "stock_almacen_ayb": { "bodega_id_erp": null, "nombre": "Almacén AyB" },
+    "stock_restaurante_fuentes_ayb": { "bodega_id_erp": null, "nombre": "Restaurante Fuentes AyB" },
+    "stock_restaurante_fuentes_sumin": { "bodega_id_erp": null, "nombre": "Restaurante Fuentes Suministros" },
+    "stock_kiosco_taquilla_ayb": { "bodega_id_erp": null, "nombre": "Kiosco Taquilla AyB" },
+    "stock_kiosco_piscigiros_ayb": { "bodega_id_erp": null, "nombre": "Kiosco Piscigiros AyB" },
+    "zoologico": { "bodega_id_erp": 47, "nombre": null },
+    "zoologico_suministros": { "bodega_id_erp": 46, "nombre": null }
+  }
+}
