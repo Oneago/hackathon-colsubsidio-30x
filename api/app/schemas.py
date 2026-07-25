@@ -195,6 +195,11 @@ class MovilConteoRead(BaseModel):
     intento_num: int
 
 
+class MovilDictadoRead(BaseModel):
+    """Texto transcrito por ElevenLabs a partir del audio dictado por el supernumerario."""
+    texto: str
+
+
 # ── Comparación ERP vs. conteo (canal WEB, Fase 4) ──────────
 class ComparacionFila(BaseModel):
     item_id: int

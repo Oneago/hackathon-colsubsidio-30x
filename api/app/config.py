@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = ""
     elevenlabs_model_id: str = "eleven_multilingual_v2"
+    elevenlabs_stt_model_id: str = "scribe_v1"
     audio_dir: str = "/audio_store"
 
     # ── Dataset (seed) ───────────────────────────────────────

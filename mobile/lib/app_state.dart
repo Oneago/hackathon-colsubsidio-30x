@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -177,6 +178,10 @@ class AppState extends ChangeNotifier {
     pendientes = await db.contarPendientes();
     notifyListeners();
   }
+
+  /// Sube el audio dictado y devuelve el texto reconocido por ElevenLabs (vía la API).
+  /// No pasa por la cola offline: es un paso previo a `registrarConteo`, no un conteo en sí.
+  Future<String> transcribirDictado(File audio) => api.transcribirAudio(audio);
 
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();

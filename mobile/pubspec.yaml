@@ -39,11 +39,10 @@ dependencies:
   shared_preferences: ^2.5.5
   path_provider: ^2.1.6
   mobile_scanner: ^7.4.0
-  speech_to_text: ^7.4.0
   audioplayers: ^6.7.1
-  permission_handler: ^12.0.3
   sqflite: ^2.4.2+1
   connectivity_plus: ^7.3.1
+  record: ^6.2.1
 
 dev_dependencies:
   flutter_test:

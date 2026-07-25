@@ -118,7 +118,8 @@ Los enums de dominio son **enums de Postgres** con valores en español (`rol_usu
   rutas: va declarada antes que `/usuarios/{usuario_id}` o FastAPI la captura como id.
 - `/bodegas` + `/bodegas/{id}/items` (web, **sí** incluye `cantidad_erp`), `/tomas`
   (abrir/cerrar/listar), `/listados` (`POST` asignar, `PATCH` reasignar/cancelar).
-- `/movil` (solo supernumerario): `mi-listado`, `conteos`.
+- `/movil` (solo supernumerario): `mi-listado`, `conteos`, `dictado` (transcribe audio con
+  ElevenLabs STT para el dictado de cantidad; 503 si falta la API key, 502 si ElevenLabs falla).
 - `/reportes`: `comparacion` y `comparacion.csv` (Δ absoluto y %, marca de crítico según
   `DIFF_UMBRAL_PCT`, CSV con BOM para Excel). Excluye los listados **cancelados**: si no, una
   reasignación duplica cada línea del informe.
@@ -172,10 +173,13 @@ Diseñada para bodegas sin señal:
   sigue pendiente.
 - Sesión persistida: al reabrir sin red se restaura token + listado cacheado (el primer login
   sí requiere conexión).
-- Flujo de conteo: escaneo o búsqueda → audio + frase en alto contraste → dictado STT `es_CO`
-  → tras **3 intentos** fallidos aparece el teclado numérico (`screens/conteo_screen.dart`).
-  El parser de voz (`services/parseo_cantidad.dart`) entiende dígitos y palabras es-CO,
-  incluidos compuestos ("treinta y cinco").
+- Flujo de conteo: escaneo o búsqueda → audio + frase en alto contraste → dictado (graba con
+  `record`, sube el audio a `POST /movil/dictado`, la API lo transcribe con ElevenLabs STT) →
+  tras **3 intentos** fallidos aparece el teclado numérico (`screens/conteo_screen.dart`). El
+  parser de voz (`services/parseo_cantidad.dart`) entiende dígitos y palabras es-CO, incluidos
+  compuestos ("treinta y cinco"), sin importar si el texto vino de ElevenLabs o se tipeó. El
+  dictado **necesita red** (no hay motor local de respaldo): sin conexión el botón se
+  deshabilita y un banner en pantalla avisa que se debe usar el teclado con cuidado extra.
 
 ## Dataset y seed
 
@@ -188,12 +192,23 @@ Diseñada para bodegas sin señal:
 - `stock` = cantidad ERP → se guarda en `cantidad_erp` (campo anti-sesgo).
 - El mapeo stock→bodega es manual y vive en `api/app/seed/bodega_stock_map.json`.
 
-## TTS (ElevenLabs)
+## Voz (ElevenLabs): TTS + STT
 
-`services/tts.py` sintetiza **on-demand al crear un listado** (BackgroundTask), deduplicando
-por descripción normalizada y cacheando para siempre en el volumen `audio_store`. Sin API key
-degrada con gracia a un mp3 de silencio, así que el flujo sigue siendo demostrable. Es
-idempotente: no re-sintetiza lo ya generado (no quema créditos).
+Toda la voz de la app —tanto la que se escucha como la que se dicta— pasa por la API, que es
+la única que tiene `ELEVENLABS_API_KEY`. El móvil **nunca** habla directo con ElevenLabs ni usa
+motores de voz nativos del dispositivo.
+
+- **TTS** (`services/tts.py`): sintetiza **on-demand al crear un listado** (BackgroundTask),
+  deduplicando por descripción normalizada y cacheando para siempre en el volumen
+  `audio_store`. Sin API key degrada con gracia a un mp3 de silencio, así que el flujo sigue
+  siendo demostrable. Es idempotente: no re-sintetiza lo ya generado (no quema créditos).
+- **STT** (`services/stt.py`): transcribe el audio que el móvil graba al dictar una cantidad
+  (`POST /movil/dictado`, modelo `ELEVENLABS_STT_MODEL_ID`/`scribe_v1`). A diferencia del TTS,
+  **no** degrada a un resultado vacío sin API key: responde 503 explícito para que el móvil
+  caiga de inmediato a captura manual, en vez de simular un reconocimiento que nunca llegaría.
+  No hay deduplicación posible (cada dictado es audio distinto), así que cada llamada consume
+  créditos — el límite de tamaño (`MAX_AUDIO_BYTES` en `routers/movil.py`) y el auto-stop de
+  ~15s en el móvil existen para acotar ese costo.
 
 ## Pruebas
 
@@ -225,6 +240,7 @@ idempotente: no re-sintetiza lo ya generado (no quema créditos).
   que construir un entorno no pise el otro.
 - El móvil declara `usesCleartextTraffic=true` solo para permitir `http://` contra un backend
   local; contra el servidor desplegado va por HTTPS.
-- El STT sin red necesita el paquete de idioma **es-CO** descargado en el dispositivo; el
-  fallback manual siempre cubre ese caso.
+- El dictado por voz depende de la API (ElevenLabs STT vía `/movil/dictado`): sin red no hay
+  motor local de respaldo, el botón de dictar queda deshabilitado y el fallback manual siempre
+  cubre ese caso.
 - `CORS_ORIGINS` (coma-separado) debe incluir el origen de la web, o el navegador bloquea todo.

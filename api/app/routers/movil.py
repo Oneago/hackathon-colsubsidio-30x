@@ -2,10 +2,11 @@
 
 - GET  /movil/mi-listado  → el listado activo asignado + audio_url por ítem.
 - POST /movil/conteos      → registra un conteo con trazabilidad.
+- POST /movil/dictado      → transcribe un audio de cantidad dictada (ElevenLabs STT).
 Recuento libre: mientras la toma esté abierta se aceptan nuevos conteos del mismo
 ítem; vale el `intento_num` mayor (el último).
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -24,11 +25,21 @@ from app.models import (
     TomaInventario,
     Usuario,
 )
-from app.schemas import MovilConteoCreate, MovilConteoRead, MovilItem, MovilListado
+from app.schemas import (
+    MovilConteoCreate,
+    MovilConteoRead,
+    MovilDictadoRead,
+    MovilItem,
+    MovilListado,
+)
+from app.services.stt import SttError, SttNoDisponible, transcribir
 from app.util import frase_confirmacion, unidad_texto
 
 router = APIRouter(prefix="/movil", tags=["movil"])
 solo_supernumerario = require_roles(RolUsuario.supernumerario)
+
+# Suficiente para varios segundos de dictado; evita audios anómalos/abusivos.
+MAX_AUDIO_BYTES = 10 * 1024 * 1024
 
 
 def _listado_vigente(db: Session, user: Usuario) -> ListadoConteo:
@@ -144,3 +155,23 @@ def registrar_conteo(
         contado_en=conteo.contado_en,
         intento_num=conteo.intento_num,
     )
+
+
+@router.post("/dictado", response_model=MovilDictadoRead, summary="Transcribe cantidad dictada (ElevenLabs)")
+async def dictado(
+    audio: UploadFile = File(...), user: Usuario = Depends(solo_supernumerario)
+) -> MovilDictadoRead:
+    # Sin estado de listado/toma de por medio: es una utilidad de transcripción,
+    # no un registro de conteo (eso lo valida /movil/conteos aparte).
+    data = await audio.read()
+    if len(data) > MAX_AUDIO_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "El audio es demasiado grande")
+
+    try:
+        texto = transcribir(data, audio.filename or "audio.m4a", audio.content_type or "audio/m4a")
+    except SttNoDisponible as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Dictado por voz no disponible") from exc
+    except SttError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "No se pudo transcribir el audio") from exc
+
+    return MovilDictadoRead(texto=texto)

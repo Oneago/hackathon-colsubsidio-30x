@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
@@ -86,6 +87,18 @@ class ApiClient {
     } catch (_) {
       return null; // sin conexión: permanece pendiente
     }
+  }
+
+  /// Sube el audio dictado y devuelve el texto transcrito por ElevenLabs (vía la API).
+  Future<String> transcribirAudio(File audio) async {
+    final req = http.MultipartRequest('POST', _u('/movil/dictado'));
+    if (token != null) req.headers['Authorization'] = 'Bearer $token';
+    req.files.add(await http.MultipartFile.fromPath('audio', audio.path));
+    final streamed = await req.send().timeout(const Duration(seconds: 30));
+    final res = await http.Response.fromStream(streamed);
+    _check(res);
+    final j = jsonDecode(res.body) as Map<String, dynamic>;
+    return j['texto'] as String;
   }
 
   void _check(http.Response res) {

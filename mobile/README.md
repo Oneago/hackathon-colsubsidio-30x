@@ -1,7 +1,8 @@
 # App móvil — Supernumerario (Flutter, Android)
 
 App de campo para el conteo físico. **Nunca recibe la cantidad del ERP** (consume solo
-endpoints `/movil`). TTS offline (descarga los `.mp3` pre-generados); STT nativo es-CO.
+endpoints `/movil`). Toda la voz es ElevenLabs vía la API: TTS offline (descarga los `.mp3`
+pre-generados) y STT en línea (graba y sube el audio a `/movil/dictado` para transcribirlo).
 
 ## Requisitos
 - Flutter SDK (Dart 3.11+), Android SDK + un emulador o tablet/celular Android.
@@ -45,7 +46,8 @@ flutter build apk
 2. Selección por **escaneo** (código de barras) o **búsqueda**.
 3. Confirmación: reproduce el **audio local** y muestra en grande y alto contraste
    `"Usted contará: <ítem>, en <unidad>. Confirme para continuar."`
-4. Dictado de la cantidad por **voz (STT es-CO)**; muestra lo reconocido y pide confirmar.
+4. Dictado de la cantidad por **voz (graba y transcribe con ElevenLabs vía la API)**; muestra
+   lo reconocido y pide confirmar.
 5. **Fallback:** tras **3 intentos** fallidos se habilita el teclado numérico.
 6. Envía el conteo (con método escaneo/búsqueda y entrada voz/manual) → el ítem queda marcado.
 
@@ -66,9 +68,9 @@ La app opera **sin conexión** en bodega:
   listado cacheado (el login inicial sí requiere conexión una vez).
 
 ## Notas
-- **STT offline:** requiere el paquete de idioma **es-CO** descargado en la tablet
-  (Ajustes → Google → Voz → Reconocimiento sin conexión). Sin él, el STT no funciona sin red;
-  el fallback manual siempre cubre ese caso.
+- **STT depende de red:** el dictado graba localmente y sube el audio a la API, que lo
+  transcribe con ElevenLabs. Sin conexión el botón de dictar se deshabilita y un aviso en
+  pantalla indica usar el teclado numérico; el fallback manual siempre cubre ese caso.
 - Permisos declarados: `INTERNET`, `CAMERA` (escaneo), `RECORD_AUDIO` (dictado).
 - `usesCleartextTraffic=true` está habilitado únicamente para permitir `http://` contra un backend
   local; contra el servidor desplegado el tráfico va por HTTPS y no hace falta.

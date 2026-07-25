@@ -1,8 +1,10 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
-import 'package:speech_to_text/speech_to_text.dart';
+import 'package:record/record.dart';
 
 import '../api_client.dart';
 import '../app_state.dart';
@@ -22,27 +24,28 @@ class ConteoScreen extends StatefulWidget {
 }
 
 class _ConteoScreenState extends State<ConteoScreen> {
-  final SpeechToText _speech = SpeechToText();
+  final AudioRecorder _recorder = AudioRecorder();
   final TextEditingController _manualCtrl = TextEditingController();
 
   _Fase _fase = _Fase.confirmar;
-  bool _speechDisponible = false;
-  bool _escuchando = false;
+  bool _grabando = false;
+  bool _transcribiendo = false;
   bool _guardando = false;
   String _textoReconocido = '';
   double? _cantidad;
   int _intentos = 0;
+  Timer? _autoStopTimer;
 
   @override
   void initState() {
     super.initState();
-    _initSpeech();
     WidgetsBinding.instance.addPostFrameCallback((_) => _reproducirAudio());
   }
 
   @override
   void dispose() {
-    _speech.cancel();
+    _autoStopTimer?.cancel();
+    _recorder.dispose();
     _manualCtrl.dispose();
     super.dispose();
   }
@@ -54,46 +57,74 @@ class _ConteoScreenState extends State<ConteoScreen> {
     }
   }
 
-  Future<void> _initSpeech() async {
-    await Permission.microphone.request();
-    final ok = await _speech.initialize();
-    if (mounted) setState(() => _speechDisponible = ok);
-  }
-
-  Future<void> _escuchar() async {
-    if (!_speechDisponible) {
-      setState(() => _fase = _Fase.manual);
+  // El dictado depende de la API/ElevenLabs: sin red no tiene sentido grabar.
+  Future<void> _grabar() async {
+    final appState = context.read<AppState>();
+    if (!appState.online) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sin conexión: el dictado por voz no está disponible')),
+      );
       return;
     }
+    if (!await _recorder.hasPermission()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Se necesita permiso de micrófono para dictar')),
+        );
+      }
+      return;
+    }
+
+    final dir = await getTemporaryDirectory();
+    final path = '${dir.path}/dictado_${DateTime.now().millisecondsSinceEpoch}.m4a';
+    await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
     setState(() {
-      _escuchando = true;
+      _grabando = true;
       _textoReconocido = '';
       _cantidad = null;
     });
-    await _speech.listen(
-      onResult: _onResult,
-      listenOptions: SpeechListenOptions(
-        partialResults: true,
-        cancelOnError: true,
-        localeId: 'es_CO', // paquete de idioma es-CO forzado en la tablet
-      ),
-    );
+    // Corte de seguridad: evita grabaciones colgadas y gasto de créditos de más.
+    _autoStopTimer = Timer(const Duration(seconds: 15), _detenerYEnviar);
   }
 
-  void _onResult(SpeechRecognitionResult result) {
-    setState(() => _textoReconocido = result.recognizedWords);
-    if (!result.finalResult) return;
-    final n = parseCantidad(result.recognizedWords);
+  Future<void> _detenerYEnviar() async {
+    _autoStopTimer?.cancel();
+    if (!_grabando) return;
+    final path = await _recorder.stop();
+    if (!mounted) return;
     setState(() {
-      _escuchando = false;
-      if (n != null) {
-        _cantidad = n;
-      } else {
+      _grabando = false;
+      _transcribiendo = path != null;
+    });
+    if (path == null) return;
+
+    try {
+      final texto = await context.read<AppState>().transcribirDictado(File(path));
+      if (!mounted) return;
+      final n = parseCantidad(texto);
+      setState(() {
+        _transcribiendo = false;
+        _textoReconocido = texto;
+        if (n != null) {
+          _cantidad = n;
+        } else {
+          _cantidad = null;
+          _intentos += 1;
+          if (_intentos >= 3) _fase = _Fase.manual; // fallback automático
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _transcribiendo = false;
         _cantidad = null;
         _intentos += 1;
-        if (_intentos >= 3) _fase = _Fase.manual; // fallback automático
-      }
-    });
+        if (_intentos >= 3) _fase = _Fase.manual;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo transcribir el audio')),
+      );
+    }
   }
 
   Future<void> _guardar(num cantidad, String entrada) async {
@@ -170,10 +201,35 @@ class _ConteoScreenState extends State<ConteoScreen> {
     );
   }
 
+  Widget _estadoDictado(bool online) {
+    final color = online ? Colors.green.shade700 : Colors.orange.shade800;
+    final texto = online
+        ? 'Reconocimiento de voz por ElevenLabs'
+        : 'Sin conexión — dictado no disponible, use el teclado e ingrese el valor con cuidado';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color),
+      ),
+      child: Row(
+        children: [
+          Icon(online ? Icons.graphic_eq : Icons.wifi_off, color: color, size: 20),
+          const SizedBox(width: 8),
+          Expanded(child: Text(texto, style: TextStyle(color: color, fontWeight: FontWeight.w600))),
+        ],
+      ),
+    );
+  }
+
   Widget _vistaDictar() {
+    final online = context.watch<AppState>().online;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _estadoDictado(online),
+        const SizedBox(height: 12),
         Text(widget.item.descripcion, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
         const SizedBox(height: 8),
         Text('Diga la cantidad en ${widget.item.unidadTexto}',
@@ -189,7 +245,11 @@ class _ConteoScreenState extends State<ConteoScreen> {
           child: Column(
             children: [
               Text(
-                _cantidad != null ? _cantidad!.toString() : (_textoReconocido.isEmpty ? '—' : _textoReconocido),
+                _cantidad != null
+                    ? _cantidad!.toString()
+                    : (_transcribiendo
+                        ? 'Transcribiendo…'
+                        : (_textoReconocido.isEmpty ? '—' : _textoReconocido)),
                 style: const TextStyle(fontSize: 40, fontWeight: FontWeight.bold),
               ),
               if (_intentos > 0 && _cantidad == null)
@@ -203,10 +263,14 @@ class _ConteoScreenState extends State<ConteoScreen> {
         ),
         const SizedBox(height: 20),
         FilledButton.tonalIcon(
-          onPressed: _escuchando ? null : _escuchar,
-          icon: Icon(_escuchando ? Icons.mic : Icons.mic_none),
-          label: Text(_escuchando ? 'Escuchando…' : 'Dictar cantidad',
-              style: const TextStyle(fontSize: 18)),
+          onPressed: !online || _transcribiendo
+              ? null
+              : (_grabando ? _detenerYEnviar : _grabar),
+          icon: Icon(_grabando ? Icons.stop_circle : Icons.mic_none),
+          label: Text(
+            _grabando ? 'Detener y enviar' : (_transcribiendo ? 'Transcribiendo…' : 'Dictar cantidad'),
+            style: const TextStyle(fontSize: 18),
+          ),
         ),
         TextButton(
           onPressed: () => setState(() => _fase = _Fase.manual),
