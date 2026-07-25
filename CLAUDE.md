@@ -71,10 +71,20 @@ Admin del seed: `ADMIN_CEDULA` / `ADMIN_PASSWORD` del `.env`.
 5. **Concurrencia.** Un solo listado **activo** por (toma, bodega), garantizado por el índice
    único parcial `uq_listado_activo_toma_bodega` (Postgres, `WHERE estado = 'activo'`). La
    segunda asignación recibe 409, no un estado corrupto. Además: a lo sumo una toma abierta por
-   bodega.
-6. **Recuento libre.** Mientras la toma esté **abierta** se aceptan nuevos conteos del mismo
+   bodega. El índice es la **última** línea de defensa: `listados.py` comprueba antes en Python
+   para poder decir en el 409 **quién** ocupa la bodega y cómo liberarla.
+6. **Toda asignación tiene salida.** `PATCH /listados/{id}` reasigna o cancela; sin él, un error
+   al asignar obligaba a cerrar la toma entera. Corolario: cerrar una toma marca sus listados
+   activos como `completado` — si no, quedan vivos para siempre, el móvil los sigue entregando y
+   el supernumerario no puede recibir otra asignación.
+7. **Un supernumerario, un listado vigente.** `/movil/mi-listado` entrega uno solo, así que dos
+   asignaciones activas a la vez (en tomas abiertas) esconderían una. Se bloquea al asignar.
+8. **Lo definitivo responde 409, no 404.** La cola offline del móvil (`resolverSync`) reintenta
+   los 404 indefinidamente y marca los 409 como conflicto. Por eso `POST /movil/conteos` devuelve
+   409 —no 404— cuando la toma se cerró o el listado se reasignó.
+9. **Recuento libre.** Mientras la toma esté **abierta** se aceptan nuevos conteos del mismo
    ítem; cada uno incrementa `intento_num` y **vale el mayor**. Con la toma cerrada: 409.
-7. **Seed idempotente.** `app/seed/seed.py` hace upsert por claves naturales
+10. **Seed idempotente.** `app/seed/seed.py` hace upsert por claves naturales
    (`bodega.id_erp` / `slug`, `item.descripcion_norm`). Correrlo N veces deja el mismo estado.
 
 ## Modelo de datos (`api/app/models.py`)
@@ -93,11 +103,15 @@ Los enums de dominio son **enums de Postgres** con valores en español (`rol_usu
 
 - `/auth`: `login/web`, `login/movil`, `change-password`, `me`. JWT HS256 vía `HTTPBearer`,
   `sub` = id de usuario. Autorización con `deps.require_roles(...)`.
-- `/usuarios` (solo admin), `/bodegas` + `/bodegas/{id}/items` (web, **sí** incluye `cantidad_erp`),
-  `/tomas` (abrir/cerrar/listar), `/listados` (asignar).
+- `/usuarios` (solo admin) salvo `/usuarios/supernumerarios?bodega_id=` (admin **y** supervisor,
+  acotado a sus bodegas: sin ella el supervisor no puede asignar nada). Ojo con el orden de las
+  rutas: va declarada antes que `/usuarios/{usuario_id}` o FastAPI la captura como id.
+- `/bodegas` + `/bodegas/{id}/items` (web, **sí** incluye `cantidad_erp`), `/tomas`
+  (abrir/cerrar/listar), `/listados` (`POST` asignar, `PATCH` reasignar/cancelar).
 - `/movil` (solo supernumerario): `mi-listado`, `conteos`.
 - `/reportes`: `comparacion` y `comparacion.csv` (Δ absoluto y %, marca de crítico según
-  `DIFF_UMBRAL_PCT`, CSV con BOM para Excel).
+  `DIFF_UMBRAL_PCT`, CSV con BOM para Excel). Excluye los listados **cancelados**: si no, una
+  reasignación duplica cada línea del informe.
 - `/health` (200/503 según BD) y `/audio` (mp3 estáticos para el móvil).
 
 ## Convenciones de código
@@ -113,6 +127,19 @@ Los enums de dominio son **enums de Postgres** con valores en español (`rol_usu
   de `index.css` (derivados de `branding/DESIGN.md`), nunca HEX sueltos.
 - Móvil: `AppState` (ChangeNotifier + provider) es el único estado global; la UI no llama al
   `ApiClient` directamente. La URL base solo por `--dart-define=API_BASE_URL`.
+
+## Etiquetas imprimibles (`web/src/pages/Etiquetas.tsx`)
+
+El dataset no trae códigos de barras reales, así que para demostrar el escaneo hay que
+imprimirlos. `lib/code128.ts` codifica **Code 128** a mano (sin librería: la consola debe
+imprimir sin CDN) y `components/CodigoBarras.tsx` lo dibuja en SVG, que la impresora rasteriza
+nítido a cualquier tamaño. Subconjunto C para códigos numéricos pares (mitad de ancho), B para
+el resto. La impresión se controla con `@media print` en `index.css`: `.no-imprimir` oculta la
+interfaz y `.contenedor-app`/`.area-contenido` sueltan el alto fijo del layout.
+
+Dos cosas que no se deben romper: la etiqueta **nunca** lleva `cantidad_erp` (invariante 1), y
+los códigos sintéticos `GEN-<sha1>` ocupan ~189 módulos — a 4 por fila bajan de 0,25 mm por
+barra y dejan de leerse, por eso la página avisa antes de imprimir.
 
 ## Branding (`branding/DESIGN.md`)
 

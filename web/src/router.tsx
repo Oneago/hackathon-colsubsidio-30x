@@ -6,6 +6,7 @@ import { Usuarios } from "@/pages/Usuarios";
 import { Inventario } from "@/pages/Inventario";
 import { Asignaciones } from "@/pages/Asignaciones";
 import { Reportes } from "@/pages/Reportes";
+import { Etiquetas } from "@/pages/Etiquetas";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <Login /> },
@@ -18,6 +19,7 @@ export const router = createBrowserRouter([
       { path: "inventario", element: <Inventario /> },
       { path: "asignaciones", element: <Asignaciones /> },
       { path: "reportes", element: <Reportes /> },
+      { path: "etiquetas", element: <Etiquetas /> },
     ],
   },
 ]);

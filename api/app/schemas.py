@@ -118,12 +118,22 @@ class ListadoCreate(BaseModel):
     item_ids: list[int] | None = None
 
 
+class ListadoUpdate(BaseModel):
+    """Reasignar (supernumerario_id) y/o cambiar el estado (cancelar/completar)."""
+    supernumerario_id: int | None = None
+    estado: EstadoListado | None = None
+
+
 class ListadoRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
     toma_id: int
     bodega_id: int
     supernumerario_id: int | None
+    # Denormalizados para la web: el supervisor NO puede listar /usuarios, así que
+    # sin esto vería solo el id crudo del supernumerario.
+    supernumerario_nombre: str | None = None
+    bodega_nombre: str = ""
     estado: EstadoListado
     total_items: int = 0
     contados: int = 0

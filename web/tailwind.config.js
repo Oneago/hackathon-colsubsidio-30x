@@ -19,6 +19,13 @@ export default {
         muted: { DEFAULT: "hsl(var(--muted))", foreground: "hsl(var(--muted-foreground))" },
         accent: { DEFAULT: "hsl(var(--accent))", foreground: "hsl(var(--accent-foreground))" },
         card: { DEFAULT: "hsl(var(--card))", foreground: "hsl(var(--card-foreground))" },
+        // Amarillo de marca. Su `foreground` es grafito, nunca blanco (DESIGN.md:
+        // blanco sobre amarillo da contraste 1.47 y no pasa WCAG).
+        "brand-accent": {
+          DEFAULT: "hsl(var(--brand-accent))",
+          foreground: "hsl(var(--brand-accent-foreground))",
+          hover: "hsl(var(--brand-accent-hover))",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
