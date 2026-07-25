@@ -87,12 +87,16 @@ export interface Toma {
   fecha_cierre: string | null;
 }
 
+export type EstadoListado = "activo" | "completado" | "cancelado";
+
 export interface Listado {
   id: number;
   toma_id: number;
   bodega_id: number;
   supernumerario_id: number | null;
-  estado: "activo" | "completado" | "cancelado";
+  supernumerario_nombre: string | null;
+  bodega_nombre: string;
+  estado: EstadoListado;
   total_items: number;
   contados: number;
 }
@@ -143,6 +147,11 @@ export const endpoints = {
   me: () => api.get<Usuario>("/auth/me"),
 
   usuarios: () => api.get<Usuario[]>("/usuarios"),
+  /** Supernumerarios asignables. A diferencia de `usuarios()`, el supervisor sí puede llamarlo. */
+  supernumerarios: (bodegaId?: number) =>
+    api.get<Usuario[]>(
+      `/usuarios/supernumerarios${bodegaId != null ? `?bodega_id=${bodegaId}` : ""}`,
+    ),
   crearUsuario: (data: {
     nombre: string;
     cedula: string;
@@ -169,6 +178,11 @@ export const endpoints = {
     supernumerario_id: number;
     item_ids?: number[];
   }) => api.post<Listado>("/listados", data),
+  /** Reasigna el listado a otro supernumerario y/o cambia su estado (cancelar). */
+  actualizarListado: (
+    id: number,
+    data: { supernumerario_id?: number; estado?: EstadoListado },
+  ) => api.patch<Listado>(`/listados/${id}`, data),
 
   comparacion: (tomaId: number) =>
     api.get<Comparacion>(`/reportes/comparacion?toma_id=${tomaId}`),
