@@ -50,6 +50,19 @@ Comprobar:
 - **Consola web:** http://localhost:5173 — ingresa con el admin del seed
   (`.env`: `ADMIN_CEDULA` / `ADMIN_PASSWORD`; por defecto `1000000000` / `admin_cambia_esta_clave`).
 
+#### Usuarios de demostración
+
+El seed también siembra una plantilla lista para probar los tres roles, con la clave
+`DEMO_PASSWORD` (`demo1234` por defecto). Se apaga con `SEED_USUARIOS_DEMO=false`.
+
+| Rol | Cédulas | Bodegas |
+|---|---|---|
+| Supervisor | `2000000001` · `2000000002` · `2000000003` | 4 (A&B) · 3 (Suministros) · 2 (Zoológico) |
+| Supernumerario | `3000000001` … `3000000006` | 1 cada uno, sobre las 6 bodegas operativas con más ítems |
+
+Recuerda la separación de canales: el supervisor **solo** entra por web y el
+supernumerario **solo** por la app móvil (403 en el canal que no le toca).
+
 ### Atajos (Makefile)
 
 ```

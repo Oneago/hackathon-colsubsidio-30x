@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     admin_password: str = "admin"
     admin_nombre: str = "Administrador"
 
+    # Plantilla de demostración que siembra el seed (ver seed/usuarios_demo.py).
+    # El interruptor existe porque son usuarios con clave conocida: si el sistema
+    # deja de ser una demo, se apaga con SEED_USUARIOS_DEMO=false y no se siembran.
+    seed_usuarios_demo: bool = True
+    demo_password: str = "demo1234"
+
     # ── Reglas de negocio ────────────────────────────────────
     diff_umbral_pct: float = 10.0
 
