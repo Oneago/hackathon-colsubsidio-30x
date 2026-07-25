@@ -5,7 +5,11 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm install
+# El lock se genera en la arquitectura del desarrollador (arm64) y solo fija ahí
+# los binarios nativos opcionales de Rollup; en un host x64 faltaría el suyo y
+# `vite build` muere. Se descarta el lock para que npm resuelva el binario de la
+# plataforma donde realmente se construye (npm/cli#4828).
+RUN rm -f package-lock.json && npm install --include=optional --no-audit --no-fund
 
 # ── dev: servidor Vite con hot reload (código montado en override) ─
 FROM node:20-alpine AS dev
