@@ -5,16 +5,23 @@ endpoints `/movil`). TTS offline (descarga los `.mp3` pre-generados); STT nativo
 
 ## Requisitos
 - Flutter SDK (Dart 3.11+), Android SDK + un emulador o tablet/celular Android.
-- El backend corriendo (`docker compose up` en la raíz del repo) y la API escuchando en `0.0.0.0`.
+- Nada más: por defecto la app consume el backend desplegado en
+  `https://syncrologix-api.macondo.page`. Solo si quieres trabajar contra un backend local
+  necesitas `docker compose up` en la raíz del repo (la API escucha en `0.0.0.0`).
 
 ## Ejecutar
 
-La URL base de la API se pasa por `--dart-define` (nunca se escribe en el código):
+Contra el servidor desplegado (por defecto, no requiere flags):
 
 ```bash
 cd mobile
 flutter pub get
+flutter run
+```
 
+Contra un backend local, sobreescribiendo la URL base con `--dart-define`:
+
+```bash
 # Emulador de Android:
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
 
@@ -24,9 +31,9 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.20:8000
 
 > Para conocer la IP LAN del anfitrión: `ipconfig getifaddr en0` (macOS) o `hostname -I` (Linux).
 
-Construir el APK:
+Construir el APK (apunta al servidor desplegado):
 ```bash
-flutter build apk --dart-define=API_BASE_URL=http://192.168.1.20:8000
+flutter build apk
 ```
 
 ## Login de prueba
@@ -63,6 +70,7 @@ La app opera **sin conexión** en bodega:
   (Ajustes → Google → Voz → Reconocimiento sin conexión). Sin él, el STT no funciona sin red;
   el fallback manual siempre cubre ese caso.
 - Permisos declarados: `INTERNET`, `CAMERA` (escaneo), `RECORD_AUDIO` (dictado).
-- `usesCleartextTraffic=true` está habilitado para permitir `http://` en desarrollo.
+- `usesCleartextTraffic=true` está habilitado únicamente para permitir `http://` contra un backend
+  local; contra el servidor desplegado el tráfico va por HTTPS y no hace falta.
 - Verificación estática: `flutter analyze` (sin issues) y `flutter test`
   (parser de cantidad, política de conflictos `resolverSync`, cache SQLite con `sqflite_common_ffi`).

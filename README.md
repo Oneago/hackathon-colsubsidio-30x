@@ -83,18 +83,21 @@ Toda la configuración va por variables de entorno (`.env`, versionado como `.en
 
 ## Acceso del móvil a la API (dentro de Compose)
 
-Flutter no se contenedoriza (compila a APK y corre en el dispositivo/emulador), pero alcanza
-la API que corre en Compose. La API escucha en `0.0.0.0`, así que:
+Flutter no se contenedoriza (compila a APK y corre en el dispositivo/emulador). Por defecto
+consume la API desplegada; para trabajar contra la API local de Compose (que escucha en `0.0.0.0`)
+se sobreescribe la URL base:
 
 | Escenario | URL base de la API |
 |---|---|
-| Emulador de Android | `http://10.0.2.2:8000` |
+| Servidor desplegado (por defecto) | `https://syncrologix-api.macondo.page` |
+| Emulador de Android (backend local) | `http://10.0.2.2:8000` |
 | Dispositivo físico en la misma red | `http://<IP-LAN-del-anfitrión>:8000` (ej. `http://192.168.1.20:8000`) |
 
-La URL base se inyecta en Flutter por `--dart-define` (nunca escrita a mano):
+El override se inyecta por `--dart-define` (la URL nunca se escribe a mano en el código):
 
 ```bash
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
+flutter run                                                  # servidor desplegado
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000  # backend local
 ```
 
 CORS se controla con `CORS_ORIGINS` en `.env`.
