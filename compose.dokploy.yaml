@@ -1,0 +1,114 @@
+# Despliegue en Dokploy (Traefik como reverse proxy + TLS).
+#
+# Autocontenido a propósito: Dokploy ejecuta UN solo archivo compose, así que
+# aquí no se usa el patrón base+override de compose.yaml / compose.prod.yaml.
+#
+# Requisitos en el panel de Dokploy (pestaña Environment):
+#   WEB_DOMAIN=inventario.tu-dominio.com
+#   API_DOMAIN=api.inventario.tu-dominio.com
+#   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB / POSTGRES_HOST=db / POSTGRES_PORT=5432
+#   JWT_SECRET, ADMIN_*, ELEVENLABS_*, AUDIO_DIR=/audio_store, DIFF_UMBRAL_PCT
+#   CORS_ORIGINS=https://inventario.tu-dominio.com
+# Ningún servicio publica puertos: todo el tráfico entra por Traefik.
+name: inventario-colsubsidio
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [internal]
+
+  api:
+    build:
+      context: ./api
+      target: runtime
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./dataset:/dataset:ro
+      - audio_store:${AUDIO_DIR:-/audio_store}
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    networks: [internal, dokploy-network]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.inv-api.rule=Host(`${API_DOMAIN}`)
+      - traefik.http.routers.inv-api.entrypoints=websecure
+      - traefik.http.routers.inv-api.tls.certresolver=letsencrypt
+      - traefik.http.services.inv-api.loadbalancer.server.port=8000
+
+  web:
+    build:
+      context: ./web
+      target: runtime
+      args:
+        # Se hornea en el bundle en tiempo de build: debe ser el dominio público
+        # de la API, no localhost (el bundle corre en el navegador del usuario).
+        VITE_API_BASE_URL: https://${API_DOMAIN}
+    image: inventario-colsubsidio-web:prod
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks: [dokploy-network]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.inv-web.rule=Host(`${WEB_DOMAIN}`)
+      - traefik.http.routers.inv-web.entrypoints=websecure
+      - traefik.http.routers.inv-web.tls.certresolver=letsencrypt
+      - traefik.http.services.inv-web.loadbalancer.server.port=80
+
+  # Job de un solo uso: carga el dataset. Idempotente (re-ejecutable sin duplicar).
+  seed:
+    build:
+      context: ./api
+      target: runtime
+    env_file:
+      - path: .env
+        required: false
+    entrypoint: ["python", "-m", "app.seed.seed"]
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
+      - ./dataset:/dataset:ro
+      - audio_store:${AUDIO_DIR:-/audio_store}
+    restart: "no"
+    networks: [internal]
+
+networks:
+  internal:
+  dokploy-network:
+    external: true
+
+volumes:
+  pgdata:
+  audio_store:
