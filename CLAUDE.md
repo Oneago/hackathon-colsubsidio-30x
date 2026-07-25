@@ -86,6 +86,11 @@ Admin del seed: `ADMIN_CEDULA` / `ADMIN_PASSWORD` del `.env`.
    ítem; cada uno incrementa `intento_num` y **vale el mayor**. Con la toma cerrada: 409.
 10. **Seed idempotente.** `app/seed/seed.py` hace upsert por claves naturales
    (`bodega.id_erp` / `slug`, `item.descripcion_norm`). Correrlo N veces deja el mismo estado.
+   Lo mismo aplica a la plantilla demo (`app/seed/usuarios_demo.py`, upsert por cédula): como
+   corre en **cada despliegue**, reconcilia nombre/rol/bodegas pero **nunca** pisa una
+   contraseña ya cambiada. Referencia las bodegas por clave natural (`slug:` / `erp:`), nunca
+   por `id`: el autoincremental no coincide entre local y producción. `tests/test_usuarios_demo.py`
+   verifica que el roster cumpla la regla de bodegas por rol (invariante 3).
 
 ## Modelo de datos (`api/app/models.py`)
 

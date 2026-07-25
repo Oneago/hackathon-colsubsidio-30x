@@ -25,6 +25,7 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.models import Bodega, Item, RolUsuario, UnidadMedida, Usuario
 from app.security import hash_password
+from app.seed.usuarios_demo import ensure_usuarios_demo
 
 MAP_PATH = Path(__file__).parent / "bodega_stock_map.json"
 
@@ -176,6 +177,12 @@ def run() -> None:
                 else:
                     updated += 1
 
+        # 3) Plantilla demo. Va al final a propósito: necesita las bodegas ya creadas
+        # para resolverlas por clave natural.
+        demo_creados = demo_actualizados = 0
+        if settings.seed_usuarios_demo:
+            demo_creados, demo_actualizados = ensure_usuarios_demo(db, settings.demo_password)
+
         db.commit()
 
         n_bodegas = len(db.scalars(select(Bodega.id)).all())
@@ -184,6 +191,7 @@ def run() -> None:
 
     print(
         f"[seed] OK · admin={'creado' if admin_creado else 'existente'} · "
+        f"usuarios demo: creados={demo_creados}, actualizados={demo_actualizados} · "
         f"bodegas={n_bodegas} (operativas={n_operativas}) · "
         f"items insertados={inserted}, actualizados={updated}, total={n_items}"
     )
