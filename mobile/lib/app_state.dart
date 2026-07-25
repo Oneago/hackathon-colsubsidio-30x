@@ -27,6 +27,7 @@ class AppState extends ChangeNotifier {
   bool cargando = false;
   bool inicializando = true;
   bool online = true;
+  bool sinListadoAsignado = false;
   int pendientes = 0;
 
   bool get autenticado => sesion != null;
@@ -118,6 +119,16 @@ class AppState extends ChangeNotifier {
       await db.guardarListado(l);
       listado = l;
       pendientes = await db.contarPendientes();
+      sinListadoAsignado = false;
+    } on ApiException catch (e) {
+      // El servidor respondió (hay red): "sin listado asignado" no es una
+      // falla de conectividad, es un estado válido a la espera de asignación.
+      if (e.status == 404) {
+        sinListadoAsignado = true;
+        online = true;
+      } else {
+        online = false;
+      }
     } catch (_) {
       // sin red o error transitorio: se mantiene el cache local
       online = false;

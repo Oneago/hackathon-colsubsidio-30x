@@ -89,9 +89,8 @@ class _ListadoScreenState extends State<ListadoScreen> {
         icon: const Icon(Icons.qr_code_scanner),
         label: const Text('Escanear'),
       ),
-      body: listado == null
-          ? const Center(child: CircularProgressIndicator())
-          : Column(
+      body: listado != null
+          ? Column(
               children: [
                 Padding(
                   padding: const EdgeInsets.all(12),
@@ -123,7 +122,32 @@ class _ListadoScreenState extends State<ListadoScreen> {
                   ),
                 ),
               ],
-            ),
+            )
+          : state.sinListadoAsignado
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.inbox_outlined, size: 56, color: Colors.grey),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Aún no tienes un listado asignado.\nEspera a que un supervisor te asigne una bodega.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: 16),
+                        ),
+                        const SizedBox(height: 20),
+                        OutlinedButton.icon(
+                          onPressed: () => context.read<AppState>().sincronizarManual(),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Reintentar'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              : const Center(child: CircularProgressIndicator()),
     );
   }
 }
