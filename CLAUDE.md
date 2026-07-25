@@ -13,7 +13,7 @@ confirmación**: quien cuenta en campo **nunca ve la cantidad del ERP**, cuenta 
 apoyo de **voz** y **escaneo**, y el sistema reconcilia después en la consola web.
 
 Estado: MVP completo (Fases 0–7 cerradas, ver `README.md`). Backend desplegado en
-`https://syncrologix-api.macondo.page`.
+`https://syncrologix-api.oneago.com`.
 
 ## Arquitectura
 
@@ -52,6 +52,11 @@ flutter analyze && flutter test
 
 URLs en dev: API `http://localhost:8000` · Swagger `/docs` · Web `http://localhost:5173`.
 Admin del seed: `ADMIN_CEDULA` / `ADMIN_PASSWORD` del `.env`.
+
+## Flujo Git
+
+- Todo commit se hace **directamente sobre `main`**. No crear ramas adicionales.
+- Al terminar una tarea, hacer commit de los cambios y `git push origin main` inmediatamente.
 
 ## Invariantes del dominio — no romper
 

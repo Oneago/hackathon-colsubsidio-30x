@@ -102,7 +102,7 @@ se sobreescribe la URL base:
 
 | Escenario | URL base de la API |
 |---|---|
-| Servidor desplegado (por defecto) | `https://syncrologix-api.macondo.page` |
+| Servidor desplegado (por defecto) | `https://syncrologix-api.oneago.com` |
 | Emulador de Android (backend local) | `http://10.0.2.2:8000` |
 | Dispositivo físico en la misma red | `http://<IP-LAN-del-anfitrión>:8000` (ej. `http://192.168.1.20:8000`) |
 

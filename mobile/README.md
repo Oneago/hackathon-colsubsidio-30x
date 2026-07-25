@@ -6,7 +6,7 @@ endpoints `/movil`). TTS offline (descarga los `.mp3` pre-generados); STT nativo
 ## Requisitos
 - Flutter SDK (Dart 3.11+), Android SDK + un emulador o tablet/celular Android.
 - Nada más: por defecto la app consume el backend desplegado en
-  `https://syncrologix-api.macondo.page`. Solo si quieres trabajar contra un backend local
+  `https://syncrologix-api.oneago.com`. Solo si quieres trabajar contra un backend local
   necesitas `docker compose up` en la raíz del repo (la API escucha en `0.0.0.0`).
 
 ## Ejecutar
