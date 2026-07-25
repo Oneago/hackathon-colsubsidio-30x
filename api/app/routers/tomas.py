@@ -10,7 +10,15 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.deps import require_roles
-from app.models import Bodega, EstadoToma, RolUsuario, TomaInventario, Usuario
+from app.models import (
+    Bodega,
+    EstadoListado,
+    EstadoToma,
+    ListadoConteo,
+    RolUsuario,
+    TomaInventario,
+    Usuario,
+)
 from app.routers.bodegas import _verificar_acceso
 from app.schemas import TomaCreate, TomaRead
 
@@ -48,6 +56,19 @@ def cerrar_toma(toma_id: int, db: Session = Depends(get_db), user: Usuario = Dep
         raise HTTPException(status.HTTP_409_CONFLICT, "La toma ya está cerrada")
     toma.estado = EstadoToma.cerrada
     toma.fecha_cierre = datetime.now(timezone.utc)
+
+    # Cerrar la toma cierra sus asignaciones. Si no, los listados quedan
+    # `activo` para siempre: el supernumerario los seguiría viendo en el móvil
+    # (sin poder contar, la toma ya no acepta conteos) y el índice único de
+    # concurrencia seguiría contándolos como asignación vigente.
+    for listado in db.scalars(
+        select(ListadoConteo).where(
+            ListadoConteo.toma_id == toma.id,
+            ListadoConteo.estado == EstadoListado.activo,
+        )
+    ).all():
+        listado.estado = EstadoListado.completado
+
     db.commit()
     db.refresh(toma)
     return toma

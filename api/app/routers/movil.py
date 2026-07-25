@@ -31,12 +31,20 @@ router = APIRouter(prefix="/movil", tags=["movil"])
 solo_supernumerario = require_roles(RolUsuario.supernumerario)
 
 
-def _listado_activo(db: Session, user: Usuario) -> ListadoConteo:
+def _listado_vigente(db: Session, user: Usuario) -> ListadoConteo:
+    """Listado vigente del supernumerario: activo Y de una toma ABIERTA.
+
+    La toma tiene que estar abierta. Sin esa condición, un listado de una toma ya
+    cerrada seguía apareciendo en el móvil y el supernumerario contaba contra un
+    listado muerto hasta chocar con el 409 de `registrar_conteo`.
+    """
     listado = db.scalar(
         select(ListadoConteo)
+        .join(TomaInventario, TomaInventario.id == ListadoConteo.toma_id)
         .where(
             ListadoConteo.supernumerario_id == user.id,
             ListadoConteo.estado == EstadoListado.activo,
+            TomaInventario.estado == EstadoToma.abierta,
         )
         .order_by(ListadoConteo.id.desc())
     )
@@ -47,7 +55,7 @@ def _listado_activo(db: Session, user: Usuario) -> ListadoConteo:
 
 @router.get("/mi-listado", response_model=MovilListado, summary="Listado asignado (sin cantidades del ERP)")
 def mi_listado(db: Session = Depends(get_db), user: Usuario = Depends(solo_supernumerario)) -> MovilListado:
-    listado = _listado_activo(db, user)
+    listado = _listado_vigente(db, user)
     bodega = db.get(Bodega, listado.bodega_id)
 
     filas = db.execute(
@@ -92,11 +100,21 @@ def mi_listado(db: Session = Depends(get_db), user: Usuario = Depends(solo_super
 def registrar_conteo(
     data: MovilConteoCreate, db: Session = Depends(get_db), user: Usuario = Depends(solo_supernumerario)
 ) -> MovilConteoRead:
-    listado = _listado_activo(db, user)
-
+    # El ítem se resuelve por sí mismo, NO a través del listado vigente: un
+    # conteo capturado offline puede llegar cuando la toma ya se cerró o el
+    # listado se reasignó, y el móvil necesita distinguir "reintenta" de
+    # "nunca se va a aceptar". Todo lo definitivo responde 409, que la cola
+    # local (`resolverSync`) marca como conflicto; un 404 lo reintentaría
+    # para siempre.
     li = db.get(ListadoItem, data.listado_item_id)
-    if not li or li.listado_id != listado.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "El ítem no pertenece a su listado")
+    if not li:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "El ítem no existe")
+
+    listado = db.get(ListadoConteo, li.listado_id)
+    if not listado or listado.supernumerario_id != user.id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Este listado ya no está asignado a usted")
+    if listado.estado != EstadoListado.activo:
+        raise HTTPException(status.HTTP_409_CONFLICT, "El listado ya no está activo; no se aceptan conteos")
 
     toma = db.get(TomaInventario, listado.toma_id)
     if not toma or toma.estado != EstadoToma.abierta:
