@@ -42,3 +42,23 @@ def test_comparacion_diferencias_y_csv(client, admin_token, bodega_test):
     assert csv_res.status_code == 200
     assert "text/csv" in csv_res.headers["content-type"]
     assert "cantidad_erp" in csv_res.text
+
+
+def test_comparacion_ignora_listados_cancelados(client, admin_token, bodega_test):
+    """Cancelar una asignación no debe duplicar las líneas del informe."""
+    from tests.test_asignaciones import _abrir_toma, _asignar
+
+    _, u1 = _crear_usuario(client, admin_token, "supernumerario", [bodega_test])
+    _, u2 = _crear_usuario(client, admin_token, "supernumerario", [bodega_test])
+    toma = _abrir_toma(client, admin_token, bodega_test)
+
+    primero = _asignar(client, admin_token, toma, bodega_test, u1["id"]).json()
+    base = client.get(f"/reportes/comparacion?toma_id={toma}", headers=auth(admin_token)).json()
+
+    client.patch(f"/listados/{primero['id']}", headers=auth(admin_token), json={"estado": "cancelado"})
+    assert _asignar(client, admin_token, toma, bodega_test, u2["id"]).status_code == 201
+
+    despues = client.get(f"/reportes/comparacion?toma_id={toma}", headers=auth(admin_token)).json()
+    assert despues["resumen"]["total_items"] == base["resumen"]["total_items"]
+    codigos = [f["codigo_barras"] for f in despues["filas"]]
+    assert len(codigos) == len(set(codigos)), "hay ítems repetidos en el informe"

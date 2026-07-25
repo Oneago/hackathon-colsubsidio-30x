@@ -17,6 +17,7 @@ from app.deps import require_roles
 from app.models import (
     Bodega,
     Conteo,
+    EstadoListado,
     Item,
     ListadoConteo,
     ListadoItem,
@@ -39,11 +40,17 @@ def _construir_comparacion(db: Session, toma_id: int, user: Usuario) -> Comparac
     bodega = db.get(Bodega, toma.bodega_id)
     umbral = get_settings().diff_umbral_pct
 
+    # Los listados CANCELADOS no entran: sus ítems son trabajo descartado. Si se
+    # incluyeran, reasignar o cancelar una asignación duplicaría cada línea del
+    # informe (dos listados sobre la misma bodega) y falsearía el resumen.
     filas_raw = db.execute(
         select(ListadoItem, Item)
         .join(ListadoConteo, ListadoConteo.id == ListadoItem.listado_id)
         .join(Item, Item.id == ListadoItem.item_id)
-        .where(ListadoConteo.toma_id == toma_id)
+        .where(
+            ListadoConteo.toma_id == toma_id,
+            ListadoConteo.estado != EstadoListado.cancelado,
+        )
         .order_by(Item.descripcion)
     ).all()
 
