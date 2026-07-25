@@ -40,3 +40,41 @@
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
 }
+
+/* Impresión de etiquetas. El layout de la consola vive en un contenedor de
+   alto fijo con scroll interno; al imprimir hay que soltarlo o solo sale la
+   primera pantalla. `.no-imprimir` marca todo lo que es interfaz, no papel. */
+@media print {
+  .no-imprimir {
+    display: none !important;
+  }
+
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .contenedor-app {
+    display: block !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .area-contenido {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  /* Una etiqueta partida entre dos hojas es una etiqueta ilegible. */
+  .etiqueta {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    border-color: #999 !important;
+  }
+
+  @page {
+    margin: 8mm;
+  }
+}
