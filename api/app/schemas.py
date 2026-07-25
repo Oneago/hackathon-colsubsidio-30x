@@ -124,6 +124,12 @@ class ListadoUpdate(BaseModel):
     estado: EstadoListado | None = None
 
 
+class ListadoItemsAdd(BaseModel):
+    """Agrega ítems a un listado activo. Solo agrega: no permite quitar ítems ya
+    incluidos (ver `agregar_items_listado` en `routers/listados.py`)."""
+    item_ids: list[int]
+
+
 class ListadoRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

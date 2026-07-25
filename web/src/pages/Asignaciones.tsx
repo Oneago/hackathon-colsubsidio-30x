@@ -3,11 +3,21 @@ import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
-import { ApiError, endpoints, type Bodega, type Listado, type Toma, type Usuario } from "@/lib/api";
+import {
+  ApiError,
+  endpoints,
+  type Bodega,
+  type Item,
+  type Listado,
+  type Toma,
+  type Usuario,
+} from "@/lib/api";
 
 function mensajeDeError(err: unknown): string {
   return err instanceof ApiError ? err.message : "No se pudo completar la operación";
@@ -19,12 +29,30 @@ export function Asignaciones() {
   const [supers, setSupers] = useState<Usuario[]>([]);
   const [listados, setListados] = useState<Listado[]>([]);
   const [nuevaBodega, setNuevaBodega] = useState<number | null>(null);
-  const [supSel, setSupSel] = useState<Record<number, number>>({});
   const [msg, setMsg] = useState<{ tipo: "ok" | "err"; texto: string } | null>(null);
   const [cargando, setCargando] = useState(true);
   // Listado que se está reasignando en el modal, y el destino elegido.
   const [reasignando, setReasignando] = useState<Listado | null>(null);
   const [destino, setDestino] = useState<number | "">("");
+
+  // Toma para la que se está armando una asignación en el modal, con su selector de ítems.
+  const [asignando, setAsignando] = useState<Toma | null>(null);
+  const [asignSupId, setAsignSupId] = useState<number | "">("");
+  const [asignItems, setAsignItems] = useState<Item[]>([]);
+  const [asignSeleccion, setAsignSeleccion] = useState<Set<number>>(new Set());
+  const [asignBusqueda, setAsignBusqueda] = useState("");
+  const [asignCargandoItems, setAsignCargandoItems] = useState(false);
+
+  // Toma que se está por eliminar (confirmación pendiente).
+  const [eliminando, setEliminando] = useState<Toma | null>(null);
+
+  // Listado activo al que se le están agregando ítems, y los candidatos (los
+  // que aún no están incluidos) cargados para el modal.
+  const [agregando, setAgregando] = useState<Listado | null>(null);
+  const [agregarCandidatos, setAgregarCandidatos] = useState<Item[]>([]);
+  const [agregarSeleccion, setAgregarSeleccion] = useState<Set<number>>(new Set());
+  const [agregarBusqueda, setAgregarBusqueda] = useState("");
+  const [agregarCargando, setAgregarCargando] = useState(false);
 
   const bodegaNombre = useMemo(
     () => Object.fromEntries(bodegas.map((b) => [b.id, b.nombre])),
@@ -77,22 +105,104 @@ export function Asignaciones() {
     await ejecutar(() => endpoints.abrirToma(nuevaBodega), "Toma abierta");
   }
 
-  async function asignar(toma: Toma) {
-    const supId = supSel[toma.id];
-    if (!supId) {
-      setMsg({ tipo: "err", texto: "Seleccione un supernumerario" });
-      return;
-    }
+  function abrirModalAsignar(toma: Toma) {
+    setAsignando(toma);
+    setAsignSupId("");
+    setAsignBusqueda("");
+    setAsignItems([]);
+    setAsignSeleccion(new Set());
+    setAsignCargandoItems(true);
+    endpoints
+      .items(toma.bodega_id)
+      .then((its) => {
+        setAsignItems(its);
+        // Todos seleccionados por defecto: el supervisor desmarca lo que no quiere incluir.
+        setAsignSeleccion(new Set(its.map((i) => i.id)));
+      })
+      .catch((err) => setMsg({ tipo: "err", texto: mensajeDeError(err) }))
+      .finally(() => setAsignCargandoItems(false));
+  }
+
+  function alternarAsignItem(id: number) {
+    setAsignSeleccion((s) => {
+      const nuevo = new Set(s);
+      if (nuevo.has(id)) nuevo.delete(id);
+      else nuevo.add(id);
+      return nuevo;
+    });
+  }
+
+  const asignFiltrados = useMemo(() => {
+    const q = asignBusqueda.trim().toLowerCase();
+    if (!q) return asignItems;
+    return asignItems.filter(
+      (i) => i.descripcion.toLowerCase().includes(q) || i.codigo_barras.toLowerCase().includes(q),
+    );
+  }, [asignItems, asignBusqueda]);
+
+  async function confirmarAsignacion() {
+    if (!asignando || !asignSupId) return;
     const ok = await ejecutar(
       () =>
         endpoints.crearListado({
-          toma_id: toma.id,
-          bodega_id: toma.bodega_id,
-          supernumerario_id: supId,
+          toma_id: asignando.id,
+          bodega_id: asignando.bodega_id,
+          supernumerario_id: Number(asignSupId),
+          item_ids: Array.from(asignSeleccion),
         }),
       "Listado asignado",
     );
-    if (ok) setSupSel((s) => ({ ...s, [toma.id]: 0 }));
+    if (ok) setAsignando(null);
+  }
+
+  async function confirmarEliminacion() {
+    if (!eliminando) return;
+    const ok = await ejecutar(
+      () => endpoints.eliminarToma(eliminando.id),
+      `Toma #${eliminando.id} eliminada`,
+    );
+    if (ok) setEliminando(null);
+  }
+
+  function abrirModalAgregar(listado: Listado) {
+    setAgregando(listado);
+    setAgregarBusqueda("");
+    setAgregarSeleccion(new Set());
+    setAgregarCandidatos([]);
+    setAgregarCargando(true);
+    Promise.all([endpoints.items(listado.bodega_id), endpoints.itemsDeListado(listado.id)])
+      .then(([todos, incluidos]) => {
+        const incluidosIds = new Set(incluidos.map((i) => i.id));
+        setAgregarCandidatos(todos.filter((i) => !incluidosIds.has(i.id)));
+      })
+      .catch((err) => setMsg({ tipo: "err", texto: mensajeDeError(err) }))
+      .finally(() => setAgregarCargando(false));
+  }
+
+  function alternarAgregarItem(id: number) {
+    setAgregarSeleccion((s) => {
+      const nuevo = new Set(s);
+      if (nuevo.has(id)) nuevo.delete(id);
+      else nuevo.add(id);
+      return nuevo;
+    });
+  }
+
+  const agregarFiltrados = useMemo(() => {
+    const q = agregarBusqueda.trim().toLowerCase();
+    if (!q) return agregarCandidatos;
+    return agregarCandidatos.filter(
+      (i) => i.descripcion.toLowerCase().includes(q) || i.codigo_barras.toLowerCase().includes(q),
+    );
+  }, [agregarCandidatos, agregarBusqueda]);
+
+  async function confirmarAgregarItems() {
+    if (!agregando || agregarSeleccion.size === 0) return;
+    const ok = await ejecutar(
+      () => endpoints.agregarItemsListado(agregando.id, Array.from(agregarSeleccion)),
+      `Ítems agregados al listado #${agregando.id}`,
+    );
+    if (ok) setAgregando(null);
   }
 
   async function confirmarReasignacion() {
@@ -185,27 +295,26 @@ export function Asignaciones() {
                         Cerrar toma
                       </Button>
                     )}
+                    {t.estado === "cerrada" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          ejecutar(() => endpoints.reabrirToma(t.id), `Toma #${t.id} reabierta`)
+                        }
+                      >
+                        Reabrir toma
+                      </Button>
+                    )}
+                    <Button variant="destructive" size="sm" onClick={() => setEliminando(t)}>
+                      Eliminar toma
+                    </Button>
                   </div>
                 </div>
 
                 {t.estado === "abierta" && !activo && (
-                  <div className="mt-3 flex flex-wrap items-end gap-3 border-t pt-3">
-                    <div className="space-y-1.5">
-                      <Label>Asignar a supernumerario</Label>
-                      <Select
-                        className="w-full sm:w-64"
-                        value={supSel[t.id] || ""}
-                        onChange={(e) => setSupSel((s) => ({ ...s, [t.id]: Number(e.target.value) }))}
-                      >
-                        <option value="">— seleccionar —</option>
-                        {sups.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.nombre} ({u.cedula})
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                    <Button size="sm" onClick={() => asignar(t)} disabled={sups.length === 0}>
+                  <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-3">
+                    <Button size="sm" onClick={() => abrirModalAsignar(t)} disabled={sups.length === 0}>
                       Asignar listado
                     </Button>
                     {sups.length === 0 && (
@@ -223,6 +332,9 @@ export function Asignaciones() {
                       (listado #{activo.id})
                     </span>
                     <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => abrirModalAgregar(activo)}>
+                        Agregar ítems
+                      </Button>
                       <Button
                         variant="outline"
                         size="sm"
@@ -257,6 +369,7 @@ export function Asignaciones() {
                         <TH>Supernumerario</TH>
                         <TH>Estado</TH>
                         <TH className="text-right">Avance</TH>
+                        <TH />
                       </TR>
                     </THead>
                     <TBody>
@@ -271,6 +384,22 @@ export function Asignaciones() {
                           </TD>
                           <TD className="text-right tabular-nums">
                             {l.contados}/{l.total_items}
+                          </TD>
+                          <TD className="text-right">
+                            {t.estado === "abierta" && !activo && l.estado === "completado" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  ejecutar(
+                                    () => endpoints.actualizarListado(l.id, { estado: "activo" }),
+                                    `Listado #${l.id} reactivado`,
+                                  )
+                                }
+                              >
+                                Reactivar
+                              </Button>
+                            )}
                           </TD>
                         </TR>
                       ))}
@@ -326,6 +455,182 @@ export function Asignaciones() {
           </div>
         </div>
       </Dialog>
+
+      <Dialog
+        open={asignando !== null}
+        onClose={() => setAsignando(null)}
+        title="Asignar listado"
+        description={
+          asignando ? `${bodegaNombre[asignando.bodega_id] ?? `Bodega ${asignando.bodega_id}`} · toma #${asignando.id}` : undefined
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Supernumerario</Label>
+            <Select
+              className="w-full"
+              value={asignSupId}
+              onChange={(e) => setAsignSupId(e.target.value === "" ? "" : Number(e.target.value))}
+            >
+              <option value="">— seleccionar —</option>
+              {asignando &&
+                supernumerariosDe(asignando.bodega_id).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nombre} ({u.cedula})
+                  </option>
+                ))}
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Ítems a incluir</Label>
+            <Input
+              placeholder="Descripción o código…"
+              value={asignBusqueda}
+              onChange={(e) => setAsignBusqueda(e.target.value)}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="text-muted-foreground">
+              {asignSeleccion.size} de {asignItems.length} seleccionados
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAsignSeleccion(new Set(asignFiltrados.map((i) => i.id)))}
+            >
+              Seleccionar {asignBusqueda ? "lo filtrado" : "todo"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setAsignSeleccion(new Set())}>
+              Quitar todo
+            </Button>
+          </div>
+
+          {asignCargandoItems && <p className="text-sm text-muted-foreground">Cargando ítems…</p>}
+          {!asignCargandoItems && asignFiltrados.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {asignItems.length === 0 ? "Esta bodega no tiene ítems." : "Ningún ítem coincide con la búsqueda."}
+            </p>
+          )}
+          {asignFiltrados.length > 0 && (
+            <div className="max-h-72 overflow-y-auto rounded-md border">
+              {asignFiltrados.map((i) => (
+                <label
+                  key={i.id}
+                  className="flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0 hover:bg-accent"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-primary"
+                    checked={asignSeleccion.has(i.id)}
+                    onChange={() => alternarAsignItem(i.id)}
+                  />
+                  <span className="font-mono text-xs text-muted-foreground">{i.codigo_barras}</span>
+                  <span className="truncate">{i.descripcion}</span>
+                </label>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setAsignando(null)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={confirmarAsignacion}
+              disabled={!asignSupId || asignSeleccion.size === 0}
+            >
+              Asignar listado
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={agregando !== null}
+        onClose={() => setAgregando(null)}
+        title="Agregar ítems"
+        description={agregando ? `Listado #${agregando.id} · ${agregando.bodega_nombre}` : undefined}
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Buscar</Label>
+            <Input
+              placeholder="Descripción o código…"
+              value={agregarBusqueda}
+              onChange={(e) => setAgregarBusqueda(e.target.value)}
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <span className="text-muted-foreground">{agregarSeleccion.size} seleccionados</span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAgregarSeleccion(new Set(agregarFiltrados.map((i) => i.id)))}
+            >
+              Seleccionar {agregarBusqueda ? "lo filtrado" : "todo"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setAgregarSeleccion(new Set())}>
+              Quitar todo
+            </Button>
+          </div>
+
+          {agregarCargando && <p className="text-sm text-muted-foreground">Cargando ítems…</p>}
+          {!agregarCargando && agregarFiltrados.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {agregarCandidatos.length === 0
+                ? "Todos los ítems de la bodega ya están incluidos en este listado."
+                : "Ningún ítem coincide con la búsqueda."}
+            </p>
+          )}
+          {agregarFiltrados.length > 0 && (
+            <div className="max-h-72 overflow-y-auto rounded-md border">
+              {agregarFiltrados.map((i) => (
+                <label
+                  key={i.id}
+                  className="flex cursor-pointer items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0 hover:bg-accent"
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-primary"
+                    checked={agregarSeleccion.has(i.id)}
+                    onChange={() => alternarAgregarItem(i.id)}
+                  />
+                  <span className="font-mono text-xs text-muted-foreground">{i.codigo_barras}</span>
+                  <span className="truncate">{i.descripcion}</span>
+                </label>
+              ))}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setAgregando(null)}>
+              Cancelar
+            </Button>
+            <Button onClick={confirmarAgregarItems} disabled={agregarSeleccion.size === 0}>
+              Agregar ítems ({agregarSeleccion.size})
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <ConfirmDialog
+        open={eliminando !== null}
+        onClose={() => setEliminando(null)}
+        onConfirm={confirmarEliminacion}
+        title="Eliminar toma"
+        description={
+          eliminando
+            ? `Esta acción es irreversible. Se eliminará la toma #${eliminando.id} de ${
+                bodegaNombre[eliminando.bodega_id] ?? `Bodega ${eliminando.bodega_id}`
+              } junto con todos sus listados, ítems asignados y conteos registrados. El historial de comparación de esta toma se perderá.`
+            : undefined
+        }
+        confirmLabel="Eliminar"
+        variant="destructive"
+      />
     </div>
   );
 }

@@ -48,6 +48,7 @@ export const api = {
   get: <T>(p: string) => request<T>("GET", p),
   post: <T>(p: string, b?: unknown) => request<T>("POST", p, b),
   patch: <T>(p: string, b?: unknown) => request<T>("PATCH", p, b),
+  delete: <T>(p: string) => request<T>("DELETE", p),
 };
 
 // ── Tipos (espejo del contrato de la API) ──────────────────
@@ -169,6 +170,8 @@ export const endpoints = {
   tomas: () => api.get<Toma[]>("/tomas"),
   abrirToma: (bodega_id: number) => api.post<Toma>("/tomas", { bodega_id }),
   cerrarToma: (id: number) => api.post<Toma>(`/tomas/${id}/cerrar`),
+  reabrirToma: (id: number) => api.post<Toma>(`/tomas/${id}/reabrir`),
+  eliminarToma: (id: number) => api.delete<void>(`/tomas/${id}`),
 
   listados: (tomaId?: number) =>
     api.get<Listado[]>(`/listados${tomaId ? `?toma_id=${tomaId}` : ""}`),
@@ -183,6 +186,11 @@ export const endpoints = {
     id: number,
     data: { supernumerario_id?: number; estado?: EstadoListado },
   ) => api.patch<Listado>(`/listados/${id}`, data),
+  /** Ítems ya incluidos en el listado (para no volver a ofrecerlos al agregar). */
+  itemsDeListado: (id: number) => api.get<Item[]>(`/listados/${id}/items`),
+  /** Agrega ítems nuevos a un listado activo; no permite quitar los ya incluidos. */
+  agregarItemsListado: (id: number, item_ids: number[]) =>
+    api.patch<Listado>(`/listados/${id}/items`, { item_ids }),
 
   comparacion: (tomaId: number) =>
     api.get<Comparacion>(`/reportes/comparacion?toma_id=${tomaId}`),

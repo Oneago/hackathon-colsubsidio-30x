@@ -31,7 +31,7 @@ from app.models import (
     Usuario,
 )
 from app.routers.bodegas import _verificar_acceso
-from app.schemas import ListadoCreate, ListadoRead, ListadoUpdate
+from app.schemas import ItemRead, ListadoCreate, ListadoItemsAdd, ListadoRead, ListadoUpdate
 from app.services.tts import ensure_audio_for_listado
 
 router = APIRouter(prefix="/listados", tags=["listados"])
@@ -280,4 +280,70 @@ def obtener_listado(listado_id: int, db: Session = Depends(get_db), user: Usuari
     if not listado:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Listado no encontrado")
     _verificar_acceso(db, user, listado.bodega_id)
+    return _to_read(db, listado)
+
+
+@router.get("/{listado_id}/items", response_model=list[ItemRead])
+def items_del_listado(
+    listado_id: int, db: Session = Depends(get_db), user: Usuario = Depends(web_roles)
+) -> list[Item]:
+    """Ítems ya incluidos en el listado; la web la usa para no ofrecerlos de nuevo
+    al agregar ítems nuevos."""
+    listado = db.get(ListadoConteo, listado_id)
+    if not listado:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Listado no encontrado")
+    _verificar_acceso(db, user, listado.bodega_id)
+    return list(
+        db.scalars(
+            select(Item)
+            .join(ListadoItem, ListadoItem.item_id == Item.id)
+            .where(ListadoItem.listado_id == listado_id)
+            .order_by(Item.descripcion)
+        ).all()
+    )
+
+
+@router.patch("/{listado_id}/items", response_model=ListadoRead)
+def agregar_items_listado(
+    listado_id: int,
+    data: ListadoItemsAdd,
+    background: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: Usuario = Depends(web_roles),
+) -> ListadoRead:
+    """Agrega ítems a un listado activo (ej. el supervisor olvidó incluirlos).
+
+    Solo agrega: no permite quitar ítems ya incluidos. Quitar un ítem borraría
+    su fila `ListadoItem`, y un conteo offline en cola para ese ítem recibiría
+    un 404 al sincronizar en vez del 409 que exige la invariante de la cola
+    móvil (`resolverSync` reintenta los 404 para siempre). Para quitar ítems se
+    sigue usando cancelar el listado y reasignar.
+    """
+    listado = db.get(ListadoConteo, listado_id)
+    if not listado:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Listado no encontrado")
+    _verificar_acceso(db, user, listado.bodega_id)
+
+    toma = db.get(TomaInventario, listado.toma_id)
+    if not toma or toma.estado != EstadoToma.abierta:
+        raise HTTPException(status.HTTP_409_CONFLICT, "La toma está cerrada; el listado ya no se puede modificar")
+    if listado.estado != EstadoListado.activo:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Solo se pueden agregar ítems a un listado activo")
+
+    existentes = set(
+        db.scalars(select(ListadoItem.item_id).where(ListadoItem.listado_id == listado_id)).all()
+    )
+    candidatos = set(
+        db.scalars(
+            select(Item.id).where(Item.id.in_(data.item_ids), Item.bodega_id == listado.bodega_id)
+        ).all()
+    )
+    nuevos = candidatos - existentes
+    if not nuevos:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No hay ítems nuevos para agregar")
+
+    db.add_all([ListadoItem(listado_id=listado.id, item_id=iid) for iid in nuevos])
+    db.commit()
+
+    background.add_task(ensure_audio_for_listado, listado.id)
     return _to_read(db, listado)

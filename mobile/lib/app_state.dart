@@ -28,6 +28,7 @@ class AppState extends ChangeNotifier {
   bool inicializando = true;
   bool online = true;
   bool sinListadoAsignado = false;
+  bool sincronizando = false;
   int pendientes = 0;
 
   bool get autenticado => sesion != null;
@@ -124,8 +125,14 @@ class AppState extends ChangeNotifier {
       // El servidor respondió (hay red): "sin listado asignado" no es una
       // falla de conectividad, es un estado válido a la espera de asignación.
       if (e.status == 404) {
+        // El 404 también llega cuando la toma se cerró o el listado se
+        // reasignó: si no se limpia el cache, la pantalla sigue mostrando el
+        // listado viejo (el servidor ya no lo reconoce, pero el móvil nunca
+        // se entera de que dejó de existir).
         sinListadoAsignado = true;
         online = true;
+        listado = null;
+        await db.borrarListado();
       } else {
         online = false;
       }
@@ -137,8 +144,12 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> sincronizarManual() async {
+    sincronizando = true;
+    notifyListeners();
     online = await _hayRed();
     if (online) await _sincronizarYRefrescar();
+    sincronizando = false;
+    notifyListeners();
   }
 
   /// Registra un conteo OFFLINE-FIRST: lo encola en SQLite, marca el ítem como

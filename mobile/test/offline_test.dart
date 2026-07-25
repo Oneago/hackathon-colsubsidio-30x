@@ -79,5 +79,30 @@ void main() {
       final cargado = await db.cargarListado();
       expect(cargado!.items.single.contado, isTrue);
     });
+
+    test('borrarListado limpia el cache pero conserva la cola de conteos', () async {
+      await db.guardarListado(MovilListado(
+        listadoId: 1, tomaId: 1, bodegaId: 1, bodegaNombre: 'B',
+        items: [
+          MovilItem(
+            listadoItemId: 10, itemId: 1, codigoBarras: '1', descripcion: 'A',
+            unidad: 'unidad', unidadTexto: 'unidades', fraseConfirmacion: 'x',
+            audioUrl: null, contado: false,
+          ),
+        ],
+      ));
+      await db.encolarConteo(ConteoPendiente(
+        listadoItemId: 10, cantidad: 3, metodo: 'busqueda', entrada: 'manual',
+        creadoEn: DateTime.now().toIso8601String(),
+      ));
+
+      await db.borrarListado();
+
+      expect(await db.cargarListado(), isNull);
+      // La toma pudo haberse cerrado antes de sincronizar: el conteo en cola
+      // debe seguir intentando enviarse (y resolverse como conflicto vía
+      // resolverSync), no desaparecer en silencio.
+      expect(await db.contarPendientes(), 1);
+    });
   });
 }

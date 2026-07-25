@@ -90,58 +90,89 @@ class _ListadoScreenState extends State<ListadoScreen> {
         label: const Text('Escanear'),
       ),
       body: listado != null
-          ? Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: TextField(
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      hintText: 'Buscar ítem…',
-                      border: OutlineInputBorder(),
+          ? RefreshIndicator(
+              onRefresh: () => context.read<AppState>().sincronizarManual(),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        hintText: 'Buscar ítem…',
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (v) => setState(() => _filtro = v.toLowerCase()),
                     ),
-                    onChanged: (v) => setState(() => _filtro = v.toLowerCase()),
                   ),
-                ),
-                Expanded(
-                  child: ListView(
-                    children: listado.items
-                        .where((i) =>
-                            i.descripcion.toLowerCase().contains(_filtro) ||
-                            i.codigoBarras.contains(_filtro))
-                        .map((item) => ListTile(
-                              title: Text(item.descripcion,
-                                  style: const TextStyle(fontSize: 17)),
-                              subtitle: Text('${item.codigoBarras} · ${item.unidadTexto}'),
-                              trailing: item.contado
-                                  ? const Icon(Icons.check_circle, color: Colors.green)
-                                  : const Icon(Icons.chevron_right),
-                              onTap: () => _abrirConteo(item, 'busqueda'),
-                            ))
-                        .toList(),
+                  Expanded(
+                    child: ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      children: listado.items
+                          .where((i) =>
+                              i.descripcion.toLowerCase().contains(_filtro) ||
+                              i.codigoBarras.contains(_filtro))
+                          .map((item) => ListTile(
+                                title: Text(item.descripcion,
+                                    style: const TextStyle(fontSize: 17)),
+                                subtitle: Text('${item.codigoBarras} · ${item.unidadTexto}'),
+                                trailing: item.contado
+                                    ? const Icon(Icons.check_circle, color: Colors.green)
+                                    : const Icon(Icons.chevron_right),
+                                onTap: () => _abrirConteo(item, 'busqueda'),
+                              ))
+                          .toList(),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             )
           : state.sinListadoAsignado
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
+              ? RefreshIndicator(
+                  onRefresh: () => context.read<AppState>().sincronizarManual(),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) => ListView(
+                      physics: const AlwaysScrollableScrollPhysics(),
                       children: [
-                        const Icon(Icons.inbox_outlined, size: 56, color: Colors.grey),
-                        const SizedBox(height: 16),
-                        const Text(
-                          'Aún no tienes un listado asignado.\nEspera a que un supervisor te asigne una bodega.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontSize: 16),
-                        ),
-                        const SizedBox(height: 20),
-                        OutlinedButton.icon(
-                          onPressed: () => context.read<AppState>().sincronizarManual(),
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('Reintentar'),
+                        ConstrainedBox(
+                          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                          child: Center(
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.inbox_outlined, size: 56, color: Colors.grey),
+                                  const SizedBox(height: 16),
+                                  const Text(
+                                    'Aún no tienes un listado asignado.\nEspera a que un supervisor te asigne una bodega.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(fontSize: 16),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  const Text(
+                                    'Desliza hacia abajo para volver a intentar.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                                  ),
+                                  const SizedBox(height: 20),
+                                  OutlinedButton.icon(
+                                    onPressed: state.sincronizando
+                                        ? null
+                                        : () => context.read<AppState>().sincronizarManual(),
+                                    icon: state.sincronizando
+                                        ? const SizedBox(
+                                            width: 16,
+                                            height: 16,
+                                            child: CircularProgressIndicator(strokeWidth: 2),
+                                          )
+                                        : const Icon(Icons.refresh),
+                                    label: Text(state.sincronizando ? 'Buscando…' : 'Reintentar'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
                         ),
                       ],
                     ),

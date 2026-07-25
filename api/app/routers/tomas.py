@@ -74,6 +74,40 @@ def cerrar_toma(toma_id: int, db: Session = Depends(get_db), user: Usuario = Dep
     return toma
 
 
+@router.post("/{toma_id}/reabrir", response_model=TomaRead)
+def reabrir_toma(toma_id: int, db: Session = Depends(get_db), user: Usuario = Depends(web_roles)) -> TomaInventario:
+    """Revierte el cierre de una toma cerrada por error, antes de terminar los conteos.
+
+    No revive automáticamente los listados que quedaron `completado` al cerrarla
+    (ver `cerrar_toma`): el supervisor los reactiva a mano con `PATCH /listados/{id}`,
+    que ya lo permite una vez la toma vuelve a estar abierta.
+    """
+    toma = db.get(TomaInventario, toma_id)
+    if not toma:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Toma no encontrada")
+    _verificar_acceso(db, user, toma.bodega_id)
+    if toma.estado == EstadoToma.abierta:
+        raise HTTPException(status.HTTP_409_CONFLICT, "La toma ya está abierta")
+
+    otra_abierta = db.scalar(
+        select(TomaInventario).where(
+            TomaInventario.bodega_id == toma.bodega_id,
+            TomaInventario.estado == EstadoToma.abierta,
+        )
+    )
+    if otra_abierta:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Ya hay una toma abierta (#{otra_abierta.id}) para esta bodega",
+        )
+
+    toma.estado = EstadoToma.abierta
+    toma.fecha_cierre = None
+    db.commit()
+    db.refresh(toma)
+    return toma
+
+
 @router.get("", response_model=list[TomaRead])
 def listar_tomas(
     bodega_id: int | None = None,
@@ -86,3 +120,20 @@ def listar_tomas(
     if user.rol == RolUsuario.supervisor:
         stmt = stmt.where(TomaInventario.bodega_id.in_({b.id for b in user.bodegas}))
     return list(db.scalars(stmt).all())
+
+
+@router.delete("/{toma_id}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_toma(toma_id: int, db: Session = Depends(get_db), user: Usuario = Depends(web_roles)) -> None:
+    """Deshace una toma abierta por error (bodega equivocada, prueba, duplicado).
+
+    Sin restricción por estado ni por conteos ya registrados: el ON DELETE CASCADE
+    de la FK (toma → listado_conteo → listado_item → conteo, ver migración inicial)
+    se encarga de borrar todo lo asociado. Irreversible; la web lo advierte antes
+    de confirmar.
+    """
+    toma = db.get(TomaInventario, toma_id)
+    if not toma:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Toma no encontrada")
+    _verificar_acceso(db, user, toma.bodega_id)
+    db.delete(toma)
+    db.commit()

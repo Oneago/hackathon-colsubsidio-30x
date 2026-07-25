@@ -112,6 +112,15 @@ class LocalDb {
     );
   }
 
+  /// Borra el listado cacheado (no la cola de conteos): se usa cuando el
+  /// servidor deja de reconocer el listado vigente (toma cerrada, reasignado),
+  /// para no seguir mostrando en el móvil un listado que ya no existe.
+  Future<void> borrarListado() async {
+    final db = await open();
+    await db.delete('listado_cache');
+    await db.delete('item_cache');
+  }
+
   Future<void> marcarItemContado(int listadoItemId) async {
     final db = await open();
     await db.update('item_cache', {'contado': 1},
