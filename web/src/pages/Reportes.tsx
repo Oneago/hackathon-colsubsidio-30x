@@ -16,7 +16,7 @@ import {
   type Listado,
   type Toma,
 } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { cn, formatearCantidad } from "@/lib/utils";
 
 function resumenChip(label: string, valor: number | string) {
   return (
@@ -156,7 +156,7 @@ export function Reportes() {
             {resumenChip("Ítems", data.resumen.total_items)}
             {resumenChip("Contados", data.resumen.contados)}
             {resumenChip("Pendientes", data.resumen.pendientes)}
-            {resumenChip(`Críticos (≥${data.resumen.umbral_pct}%)`, data.resumen.criticos)}
+            {resumenChip(`Críticos (≥${formatearCantidad(data.resumen.umbral_pct, 1)}%)`, data.resumen.criticos)}
           </div>
 
           <Card>
@@ -189,11 +189,11 @@ export function Reportes() {
                     >
                       <TD className="font-mono text-xs">{f.codigo_barras}</TD>
                       <TD className="min-w-48">{f.descripcion}</TD>
-                      <TD className="text-right tabular-nums">{f.cantidad_erp}</TD>
-                      <TD className="text-right tabular-nums">{f.cantidad_contada ?? "—"}</TD>
-                      <TD className="text-right tabular-nums">{f.diff_abs ?? "—"}</TD>
+                      <TD className="text-right tabular-nums">{formatearCantidad(f.cantidad_erp)}</TD>
+                      <TD className="text-right tabular-nums">{formatearCantidad(f.cantidad_contada)}</TD>
+                      <TD className="text-right tabular-nums">{formatearCantidad(f.diff_abs)}</TD>
                       <TD className="text-right tabular-nums">
-                        {f.diff_pct != null ? `${f.diff_pct.toFixed(1)}%` : "—"}
+                        {f.diff_pct != null ? `${formatearCantidad(f.diff_pct, 1)}%` : "—"}
                       </TD>
                       <TD>
                         {!f.contado ? (

@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
 import { endpoints, type Bodega, type Item } from "@/lib/api";
+import { formatearCantidad } from "@/lib/utils";
 
 export function Inventario() {
   const [bodegas, setBodegas] = useState<Bodega[]>([]);
@@ -86,7 +87,7 @@ export function Inventario() {
                   <TD className="font-mono text-xs">{i.codigo_barras}</TD>
                   <TD>{i.descripcion}</TD>
                   <TD className="capitalize text-muted-foreground">{i.unidad}</TD>
-                  <TD className="text-right tabular-nums">{i.cantidad_erp}</TD>
+                  <TD className="text-right tabular-nums">{formatearCantidad(i.cantidad_erp)}</TD>
                 </TR>
               ))}
             </TBody>

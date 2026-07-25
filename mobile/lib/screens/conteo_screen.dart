@@ -9,6 +9,7 @@ import 'package:record/record.dart';
 import '../api_client.dart';
 import '../app_state.dart';
 import '../models.dart';
+import '../services/formato_cantidad.dart';
 import '../services/parseo_cantidad.dart';
 
 enum _Fase { confirmar, dictar, manual }
@@ -246,7 +247,7 @@ class _ConteoScreenState extends State<ConteoScreen> {
             children: [
               Text(
                 _cantidad != null
-                    ? _cantidad!.toString()
+                    ? formatearCantidad(_cantidad!)
                     : (_transcribiendo
                         ? 'Transcribiendo…'
                         : (_textoReconocido.isEmpty ? '—' : _textoReconocido)),

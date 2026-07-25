@@ -27,6 +27,7 @@ from app.models import (
 )
 from app.routers.bodegas import _verificar_acceso
 from app.schemas import ComparacionFila, ComparacionResponse, ComparacionResumen
+from app.util import formatear_cantidad
 
 router = APIRouter(prefix="/reportes", tags=["reportes"])
 web_roles = require_roles(RolUsuario.administrador, RolUsuario.supervisor)
@@ -126,17 +127,20 @@ def comparacion_csv(
 ) -> Response:
     data = _construir_comparacion(db, toma_id, user)
     buffer = io.StringIO()
-    writer = csv.writer(buffer)
+    # Delimitador ";" (no ","): el separador decimal pasa a ser coma, y así se evita
+    # la ambigüedad entre coma-de-campo y coma-decimal (convención Excel es-CO).
+    writer = csv.writer(buffer, delimiter=";")
     writer.writerow(
         ["codigo", "descripcion", "unidad", "cantidad_erp", "cantidad_contada",
          "diff_abs", "diff_pct", "critico", "estado"]
     )
     for f in data.filas:
         writer.writerow([
-            f.codigo_barras, f.descripcion, f.unidad.value, f.cantidad_erp,
-            f.cantidad_contada if f.cantidad_contada is not None else "",
-            f.diff_abs if f.diff_abs is not None else "",
-            f"{f.diff_pct:.2f}" if f.diff_pct is not None else "",
+            f.codigo_barras, f.descripcion, f.unidad.value,
+            formatear_cantidad(f.cantidad_erp),
+            formatear_cantidad(f.cantidad_contada),
+            formatear_cantidad(f.diff_abs),
+            formatear_cantidad(f.diff_pct, decimales=1),
             "si" if f.critico else "no",
             "contado" if f.contado else "pendiente",
         ])

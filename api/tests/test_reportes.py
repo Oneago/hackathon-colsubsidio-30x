@@ -37,11 +37,26 @@ def test_comparacion_diferencias_y_csv(client, admin_token, bodega_test):
     assert pendiente["cantidad_contada"] is None
     assert pendiente["critico"] is False
 
-    # Exportación CSV.
+    # Exportación CSV: delimitador ";" y coma decimal (convención Excel es-CO),
+    # sin ceros de cola ("10" en vez de "10.000").
     csv_res = client.get(f"/reportes/comparacion.csv?toma_id={toma}", headers=auth(admin_token))
     assert csv_res.status_code == 200
     assert "text/csv" in csv_res.headers["content-type"]
     assert "cantidad_erp" in csv_res.text
+
+    filas_csv = csv_res.text.lstrip("﻿").splitlines()
+    assert filas_csv[0].split(";") == [
+        "codigo", "descripcion", "unidad", "cantidad_erp", "cantidad_contada",
+        "diff_abs", "diff_pct", "critico", "estado",
+    ]
+    linea_contada = next(
+        l for l in filas_csv[1:] if l.split(";")[0] == contada["codigo_barras"]
+    )
+    campos = linea_contada.split(";")
+    assert campos[3] == "10"   # cantidad_erp sin ".000"
+    assert campos[4] == "7"    # cantidad_contada sin ".000"
+    assert campos[5] == "-3"   # diff_abs
+    assert campos[6] == "-30"  # diff_pct a 1 decimal, sin ".0"
 
 
 def test_comparacion_ignora_listados_cancelados(client, admin_token, bodega_test):
