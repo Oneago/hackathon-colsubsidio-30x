@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.deps import require_roles
 from app.models import Bodega, RolUsuario, Usuario
-from app.schemas import UsuarioCreate, UsuarioRead, UsuarioUpdate
+from app.schemas import UsuarioCreate, UsuarioRead, UsuarioResetPassword, UsuarioUpdate
 from app.security import hash_password
 
 router = APIRouter(prefix="/usuarios", tags=["usuarios"])
@@ -63,6 +63,31 @@ def obtener_usuario(usuario_id: int, db: Session = Depends(get_db), _=Depends(so
     user = db.get(Usuario, usuario_id)
     if not user:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+    return user
+
+
+@router.post("/{usuario_id}/reset-password", response_model=UsuarioRead)
+def restablecer_password(
+    usuario_id: int,
+    data: UsuarioResetPassword,
+    db: Session = Depends(get_db),
+    admin: Usuario = Depends(solo_admin),
+) -> Usuario:
+    """Asigna una contraseña nueva a otro usuario (olvido de clave en campo)."""
+    user = db.get(Usuario, usuario_id)
+    if not user:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Usuario no encontrado")
+    if user.id == admin.id:
+        # La clave propia se cambia por /auth/change-password, que sí exige la
+        # actual: así una sesión abierta no permite apoderarse de la cuenta.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Para cambiar su propia contraseña use el cambio de contraseña, no el restablecimiento",
+        )
+    user.password_hash = hash_password(data.password_nueva)
+    user.must_change_password = False  # la clave que asigna el admin es la definitiva
+    db.commit()
+    db.refresh(user)
     return user
 
 

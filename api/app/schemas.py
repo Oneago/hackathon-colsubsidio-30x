@@ -62,6 +62,13 @@ class UsuarioUpdate(BaseModel):
     bodega_ids: list[int] | None = None
 
 
+class UsuarioResetPassword(BaseModel):
+    """Restablecimiento hecho por el administrador: no exige la contraseña actual
+    (el punto es justamente que el usuario la olvidó). La clave asignada es la
+    definitiva; no obliga a rotarla al ingresar."""
+    password_nueva: str = Field(min_length=6)
+
+
 class UsuarioRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int

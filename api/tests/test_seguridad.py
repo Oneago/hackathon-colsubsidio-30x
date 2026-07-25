@@ -42,6 +42,40 @@ def test_toma_cerrada_rechaza_conteo(client, admin_token, bodega_test):
     assert r.status_code == 409
 
 
+def test_admin_restablece_contrasena(client, admin_token, bodega_test):
+    ced, u = _crear_usuario(client, admin_token, "supervisor", [bodega_test])
+
+    r = client.post(f"/usuarios/{u['id']}/reset-password", headers=auth(admin_token),
+                    json={"password_nueva": "asignada9"})
+    assert r.status_code == 200, r.text
+    # La clave que asigna el admin es la definitiva: no se exige rotarla al ingresar.
+    assert r.json()["must_change_password"] is False
+
+    assert client.post("/auth/login/web", json={"cedula": ced, "password": "secret123"}).status_code == 401
+    relogin = client.post("/auth/login/web", json={"cedula": ced, "password": "asignada9"})
+    assert relogin.status_code == 200
+    assert relogin.json()["must_change_password"] is False
+
+
+def test_reset_password_solo_admin_y_no_a_si_mismo(client, admin_token, bodega_test):
+    ced, sup = _crear_usuario(client, admin_token, "supervisor", [bodega_test])
+    _, otro = _crear_usuario(client, admin_token, "supernumerario", [bodega_test])
+
+    tok = client.post("/auth/login/web", json={"cedula": ced, "password": "secret123"}).json()["access_token"]
+    r = client.post(f"/usuarios/{otro['id']}/reset-password", headers=auth(tok),
+                    json={"password_nueva": "asignada9"})
+    assert r.status_code == 403
+
+    yo = client.get("/auth/me", headers=auth(admin_token)).json()
+    propio = client.post(f"/usuarios/{yo['id']}/reset-password", headers=auth(admin_token),
+                         json={"password_nueva": "asignada9"})
+    assert propio.status_code == 400
+
+    corta = client.post(f"/usuarios/{sup['id']}/reset-password", headers=auth(admin_token),
+                        json={"password_nueva": "123"})
+    assert corta.status_code == 422
+
+
 def test_supervisor_no_puede_crear_usuarios(client, admin_token, bodega_test):
     ced, _ = _crear_usuario(client, admin_token, "supervisor", [bodega_test])
     tok = client.post("/auth/login/web", json={"cedula": ced, "password": "secret123"}).json()["access_token"]

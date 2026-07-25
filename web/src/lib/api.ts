@@ -150,6 +150,8 @@ export const endpoints = {
     rol: Rol;
     bodega_ids: number[];
   }) => api.post<Usuario>("/usuarios", data),
+  restablecerPassword: (id: number, password_nueva: string) =>
+    api.post<Usuario>(`/usuarios/${id}/reset-password`, { password_nueva }),
 
   bodegas: (soloOperativas = false) =>
     api.get<Bodega[]>(`/bodegas?solo_operativas=${soloOperativas}`),
