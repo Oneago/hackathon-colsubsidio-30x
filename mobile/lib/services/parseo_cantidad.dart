@@ -1,23 +1,75 @@
 /// Extrae una cantidad numérica de un texto reconocido por voz (es-CO).
 /// Devuelve null si no logra interpretar un número.
+///
+/// Une en una sola pasada dígitos, palabras y multiplicadores ("mil") porque
+/// ElevenLabs puede transcribir el mismo dictado de tres formas distintas
+/// ("treinta y tres mil", "33.000" con separador de miles es-CO, o la híbrida
+/// "33 mil"): tratarlas como ramas separadas donde solo una "gana" hace que
+/// las otras dos se interpreten mal (p. ej. "33.000" leído como decimal 33.0).
 double? parseCantidad(String texto) {
   final limpio = _sinAcentos(texto.toLowerCase()).trim();
   if (limpio.isEmpty) return null;
 
-  // 1) Dígitos explícitos ("7", "3.5", "3,5").
-  final match = RegExp(r'\d+([.,]\d+)?').firstMatch(limpio);
-  if (match != null) {
-    return double.tryParse(match.group(0)!.replaceAll(',', '.'));
+  final tokens = limpio
+      .replaceAll(' y ', ' ')
+      .split(RegExp(r'\s+'))
+      .map((t) => t.replaceAll(RegExp(r'^[^\w]+|[^\w]+$'), ''))
+      .where((t) => t.isNotEmpty)
+      .toList();
+
+  num total = 0;
+  num actual = 0;
+  var reconocio = false;
+
+  for (final t in tokens) {
+    final digitos = _parseGrupoDigitos(t);
+    if (digitos != null) {
+      actual += digitos;
+      reconocio = true;
+      continue;
+    }
+    final palabra = _palabras[t];
+    if (palabra != null) {
+      actual += palabra;
+      reconocio = true;
+      continue;
+    }
+    final multiplicador = _multiplicadores[t];
+    if (multiplicador != null) {
+      total += (actual == 0 ? 1 : actual) * multiplicador;
+      actual = 0;
+      reconocio = true;
+      continue;
+    }
+    // Token no reconocido (ruido de la frase o de la transcripción): se ignora.
   }
 
-  // 2) Números en palabras (0–99 + cien), incluyendo compuestos ("treinta y cinco").
-  final tokens = limpio.replaceAll(' y ', ' ').split(RegExp(r'\s+'));
-  int? suma;
-  for (final t in tokens) {
-    final v = _palabras[t];
-    if (v != null) suma = (suma ?? 0) + v;
+  if (!reconocio) return null;
+  return (total + actual).toDouble();
+}
+
+/// Interpreta un token puramente numérico, resolviendo si "." o "," es
+/// separador de miles o marca decimal (convención es-CO).
+double? _parseGrupoDigitos(String s) {
+  if (!RegExp(r'^\d+([.,]\d+)*$').hasMatch(s)) return null;
+
+  final tieneComa = s.contains(',');
+  final tienePunto = s.contains('.');
+  if (!tieneComa && !tienePunto) return double.tryParse(s);
+
+  if (tieneComa && tienePunto) {
+    final decimalEsComa = s.lastIndexOf(',') > s.lastIndexOf('.');
+    final sepMiles = decimalEsComa ? '.' : ',';
+    final sepDecimal = decimalEsComa ? ',' : '.';
+    return double.tryParse(s.replaceAll(sepMiles, '').replaceAll(sepDecimal, '.'));
   }
-  return suma?.toDouble();
+
+  final sep = tieneComa ? ',' : '.';
+  final partes = s.split(sep);
+  // Un solo separador: es de miles si deja exactamente 3 dígitos detrás (y
+  // por tanto también si hay más de un grupo, ej. "1.234.567"); si no, decimal.
+  final esDecimal = partes.length == 2 && partes.last.length != 3;
+  return double.tryParse(esDecimal ? s.replaceAll(sep, '.') : partes.join());
 }
 
 String _sinAcentos(String s) => s
@@ -38,4 +90,10 @@ const Map<String, int> _palabras = {
   'veintisiete': 27, 'veintiocho': 28, 'veintinueve': 29,
   'treinta': 30, 'cuarenta': 40, 'cincuenta': 50, 'sesenta': 60,
   'setenta': 70, 'ochenta': 80, 'noventa': 90, 'cien': 100, 'ciento': 100,
+  'doscientos': 200, 'doscientas': 200, 'trescientos': 300, 'trescientas': 300,
+  'cuatrocientos': 400, 'cuatrocientas': 400, 'quinientos': 500, 'quinientas': 500,
+  'seiscientos': 600, 'seiscientas': 600, 'setecientos': 700, 'setecientas': 700,
+  'ochocientos': 800, 'ochocientas': 800, 'novecientos': 900, 'novecientas': 900,
 };
+
+const Map<String, int> _multiplicadores = {'mil': 1000};

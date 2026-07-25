@@ -26,6 +26,19 @@ void main() {
       expect(parseCantidad('dieciséis'), 16);
     });
 
+    test('reconoce miles dictados en palabras', () {
+      expect(parseCantidad('treinta y tres mil'), 33000);
+      expect(parseCantidad('mil quinientos'), 1500);
+      expect(parseCantidad('cuarenta y un mil quinientos'), 41500);
+      expect(parseCantidad('once mil seiscientos'), 11600);
+    });
+
+    test('reconoce miles transcritos en dígitos (separador es-CO) o en forma híbrida', () {
+      expect(parseCantidad('33.000'), 33000);
+      expect(parseCantidad('33 mil'), 33000);
+      expect(parseCantidad('1.234,56'), 1234.56);
+    });
+
     test('devuelve null si no hay número', () {
       expect(parseCantidad('no sé'), isNull);
       expect(parseCantidad(''), isNull);
