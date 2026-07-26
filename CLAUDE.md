@@ -73,11 +73,19 @@ Admin del seed: `ADMIN_CEDULA` / `ADMIN_PASSWORD` del `.env`.
 4. **Alcance por rol.** Admin ve todo; supervisor solo sus bodegas. Se aplica con
    `bodegas.py::bodega_ids_accesibles` / `_verificar_acceso`, reutilizado por tomas, listados y
    reportes.
-5. **Concurrencia.** Un solo listado **activo** por (toma, bodega), garantizado por el índice
-   único parcial `uq_listado_activo_toma_bodega` (Postgres, `WHERE estado = 'activo'`). La
-   segunda asignación recibe 409, no un estado corrupto. Además: a lo sumo una toma abierta por
-   bodega. El índice es la **última** línea de defensa: `listados.py` comprueba antes en Python
-   para poder decir en el 409 **quién** ocupa la bodega y cómo liberarla.
+5. **Concurrencia — exclusividad por ítem, no por bodega.** Varios listados **activos** pueden
+   coexistir en la misma (toma, bodega) —uno por supernumerario, para contar en paralelo—
+   siempre que sus **ítems no se solapen**. Lo impone `listados.py::_conflicto_solape`,
+   serializado por `_bloquear_toma` (`pg_advisory_xact_lock(toma_id)`), que **evita** la carrera
+   en vez de detectarla después; por eso el 409 puede decir **cuántos** ítems chocan, en **qué**
+   listado y de **quién** — un 409 anónimo deja al supervisor sin salida. Hasta la migración
+   `b6f2a41c9d3e` la regla era un solo listado activo por bodega, impuesta por el índice único
+   parcial `uq_listado_activo_toma_bodega`: ese índice **ya no existe** y el código ya no captura
+   `IntegrityError`. Corolario: `POST /listados` sin `item_ids` asigna solo los ítems
+   **disponibles** (los que no tiene ya otro listado activo de esa toma), no todos los de la
+   bodega; `bodegas.py::_items_tomados_ids` es el único criterio de "disponible" y lo comparte
+   con el selector de la web (`GET /bodegas/{id}/items?toma_id=`). Sin cambios: a lo sumo una
+   toma abierta por bodega.
 6. **Toda asignación tiene salida.** `PATCH /listados/{id}` reasigna o cancela; sin él, un error
    al asignar obligaba a cerrar la toma entera. Corolario: cerrar una toma marca sus listados
    activos como `completado` — si no, quedan vivos para siempre, el móvil los sigue entregando y
