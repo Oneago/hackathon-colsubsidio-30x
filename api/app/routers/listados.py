@@ -1,10 +1,12 @@
 """Listados de conteo (asignación a supernumerarios). Admin y supervisor.
 
-BLOQUEO DE CONCURRENCIA: el índice único parcial `uq_listado_activo_toma_bodega`
-impide que exista más de un listado ACTIVO por (toma, bodega). Ese índice es la
-última línea de defensa (carrera entre dos peticiones); antes de llegar a él se
-comprueba en Python para poder devolver un mensaje que diga QUIÉN tiene la
-asignación y cómo liberarla — un 409 anónimo deja al supervisor sin salida.
+BLOQUEO DE CONCURRENCIA: pueden coexistir varios listados ACTIVOS para la
+misma (toma, bodega), uno por supernumerario, siempre que sus ítems no se
+solapen. Un `pg_advisory_xact_lock(toma_id)` (`_bloquear_toma`) serializa el
+chequeo de solape + insert dentro de la transacción, evitando la carrera en
+vez de detectarla después; `_conflicto_solape` hace el chequeo en Python para
+poder devolver un mensaje que diga QUÉ ítems están en conflicto y con QUIÉN —
+un 409 anónimo deja al supervisor sin salida.
 
 REASIGNACIÓN: `PATCH /listados/{id}` es la única forma de cambiar de
 supernumerario o de cancelar. Sin él, un error al asignar obligaba a cerrar la
@@ -13,8 +15,7 @@ toma entera.
 El audio se genera en segundo plano (on-demand).
 """
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -30,7 +31,7 @@ from app.models import (
     TomaInventario,
     Usuario,
 )
-from app.routers.bodegas import _verificar_acceso
+from app.routers.bodegas import _items_tomados_ids, _verificar_acceso
 from app.schemas import ItemRead, ListadoCreate, ListadoItemsAdd, ListadoRead, ListadoUpdate
 from app.services.tts import ensure_audio_for_listado
 
@@ -74,14 +75,48 @@ def _validar_supernumerario(db: Session, supernumerario_id: int, bodega_id: int)
     return sup
 
 
-def _listado_activo_de(db: Session, toma_id: int, bodega_id: int) -> ListadoConteo | None:
-    return db.scalar(
-        select(ListadoConteo).where(
+_LOCK_NS_LISTADOS = 875_501  # namespace arbitrario para pg_advisory_xact_lock(ns, toma_id)
+
+
+def _bloquear_toma(db: Session, toma_id: int) -> None:
+    """Serializa el chequeo de solape + insert por toma dentro de la
+    transacción actual (se libera solo al hacer commit/rollback). Reemplaza al
+    antiguo índice único parcial como defensa de concurrencia: en vez de
+    detectar la carrera después (IntegrityError), la evita poniendo en fila a
+    las peticiones concurrentes de la misma toma."""
+    db.execute(text("SELECT pg_advisory_xact_lock(:ns, :toma_id)"), {"ns": _LOCK_NS_LISTADOS, "toma_id": toma_id})
+
+
+def _conflicto_solape(
+    db: Session, toma_id: int, item_ids: set[int], excluir_listado_id: int | None = None
+) -> tuple[ListadoConteo, int] | None:
+    """Si algún ítem de `item_ids` ya pertenece a OTRO listado activo de esta
+    toma, devuelve (ese listado, cuántos ítems se solapan con él) — el listado
+    con más ítems en conflicto, si hay varios. Es la validación que reemplaza
+    a la antigua "un solo listado activo por bodega": ahora la exclusividad es
+    por ítem, no por bodega entera."""
+    if not item_ids:
+        return None
+    stmt = (
+        select(ListadoConteo, func.count(ListadoItem.item_id))
+        .join(ListadoItem, ListadoItem.listado_id == ListadoConteo.id)
+        .where(
             ListadoConteo.toma_id == toma_id,
-            ListadoConteo.bodega_id == bodega_id,
             ListadoConteo.estado == EstadoListado.activo,
+            ListadoItem.item_id.in_(item_ids),
         )
+        .group_by(ListadoConteo.id)
+        .order_by(func.count(ListadoItem.item_id).desc())
     )
+    if excluir_listado_id is not None:
+        stmt = stmt.where(ListadoConteo.id != excluir_listado_id)
+    fila = db.execute(stmt).first()
+    return (fila[0], fila[1]) if fila else None
+
+
+def _nombre_dueno(db: Session, listado: ListadoConteo) -> str:
+    dueno = db.get(Usuario, listado.supernumerario_id) if listado.supernumerario_id else None
+    return dueno.nombre if dueno else "otro supernumerario"
 
 
 def _otra_asignacion_vigente(
@@ -125,20 +160,10 @@ def crear_listado(
 
     sup = _validar_supernumerario(db, data.supernumerario_id, data.bodega_id)
 
-    # Comprobación explícita antes del índice único: el mensaje debe decir quién
-    # tiene la asignación y qué hacer, no solo que ya existe.
-    existente = _listado_activo_de(db, data.toma_id, data.bodega_id)
-    if existente:
-        actual = db.get(Usuario, existente.supernumerario_id) if existente.supernumerario_id else None
-        quien = actual.nombre if actual else "otro supernumerario"
-        if existente.supernumerario_id == data.supernumerario_id:
-            detalle = f"Esta bodega ya está asignada a {quien} en esta toma (listado #{existente.id})."
-        else:
-            detalle = (
-                f"Esta bodega ya está asignada a {quien} en esta toma (listado #{existente.id}). "
-                f"Reasigne ese listado o cancélelo para asignarlo a {sup.nombre}."
-            )
-        raise HTTPException(status.HTTP_409_CONFLICT, detalle)
+    # Serializa el resto de esta función por toma: dos peticiones concurrentes
+    # para la misma toma ya no pueden calcular "ítems disponibles" sobre la
+    # misma foto y crear el mismo ítem en dos listados.
+    _bloquear_toma(db, data.toma_id)
 
     vigente = _otra_asignacion_vigente(db, data.supernumerario_id)
     if vigente:
@@ -156,10 +181,41 @@ def crear_listado(
         item_ids = set(db.scalars(
             select(Item.id).where(Item.id.in_(data.item_ids), Item.bodega_id == data.bodega_id)
         ).all())
+        if not item_ids:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "La bodega no tiene ítems para asignar")
+        # Selección explícita: si solapa con otro listado activo, se rechaza
+        # entera (el supervisor decide qué quitar), no se recorta en silencio.
+        conflicto = _conflicto_solape(db, data.toma_id, item_ids)
+        if conflicto:
+            otro, n = conflicto
+            quien = _nombre_dueno(db, otro)
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"{n} de los ítems seleccionados ya están en el listado #{otro.id} de {quien} "
+                "(activo en esta toma). Quítelos de la selección, o cancele/edite ese listado, "
+                "para continuar.",
+            )
     else:
-        item_ids = set(db.scalars(select(Item.id).where(Item.bodega_id == data.bodega_id)).all())
-    if not item_ids:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "La bodega no tiene ítems para asignar")
+        todos = set(db.scalars(select(Item.id).where(Item.bodega_id == data.bodega_id)).all())
+        if not todos:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "La bodega no tiene ítems para asignar")
+        # Sin selección explícita: por defecto se asignan los ítems
+        # DISPONIBLES (no tomados por otro listado activo de esta toma), no
+        # todos los de la bodega.
+        item_ids = todos - _items_tomados_ids(db, data.toma_id)
+        if not item_ids:
+            # `todos` quedó cubierto por completo por listados activos de esta
+            # toma: _conflicto_solape siempre encuentra al menos uno.
+            conflicto = _conflicto_solape(db, data.toma_id, todos)
+            otro = conflicto[0] if conflicto else None
+            quien = _nombre_dueno(db, otro) if otro else "otro supernumerario"
+            detalle_listado = f" (listado #{otro.id})" if otro else ""
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Esta bodega ya está completamente asignada a {quien} en esta toma"
+                f"{detalle_listado}. Reasigne o cancele ese listado, o indique ítems "
+                "puntuales, para asignar el resto.",
+            )
 
     listado = ListadoConteo(
         toma_id=data.toma_id,
@@ -169,16 +225,7 @@ def crear_listado(
         creado_por=user.id,
     )
     db.add(listado)
-    try:
-        db.flush()  # dispara el índice único parcial
-    except IntegrityError:
-        # Solo se llega aquí si otra petición ganó la carrera entre la
-        # comprobación de arriba y este INSERT.
-        db.rollback()
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Otro usuario acaba de asignar esta bodega en esta toma. Recargue la página.",
-        )
+    db.flush()
 
     db.add_all([ListadoItem(listado_id=listado.id, item_id=iid) for iid in item_ids])
     db.commit()
@@ -232,25 +279,25 @@ def actualizar_listado(
         listado.supernumerario_id = data.supernumerario_id
 
     if data.estado is not None and data.estado != listado.estado:
-        # Reactivar exige que la bodega esté libre en esta toma (el índice único
-        # lo impone; aquí se explica por qué).
+        # Reactivar exige que ninguno de sus ítems esté ya en otro listado
+        # activo de esta toma (la exclusividad es por ítem, no por bodega).
         if data.estado == EstadoListado.activo:
-            ocupado = _listado_activo_de(db, listado.toma_id, listado.bodega_id)
-            if ocupado and ocupado.id != listado.id:
+            _bloquear_toma(db, listado.toma_id)
+            item_ids = set(
+                db.scalars(select(ListadoItem.item_id).where(ListadoItem.listado_id == listado.id)).all()
+            )
+            conflicto = _conflicto_solape(db, listado.toma_id, item_ids, excluir_listado_id=listado.id)
+            if conflicto:
+                otro, n = conflicto
+                quien = _nombre_dueno(db, otro)
                 raise HTTPException(
                     status.HTTP_409_CONFLICT,
-                    f"No se puede reactivar: el listado #{ocupado.id} ya está activo en esta bodega.",
+                    f"No se puede reactivar: {n} de sus ítems ya están en el listado #{otro.id} de "
+                    f"{quien} (activo en esta toma). Cancele o edite ese listado primero.",
                 )
         listado.estado = data.estado
 
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Otro usuario modificó la asignación de esta bodega. Recargue la página.",
-        )
+    db.commit()
     db.refresh(listado)
 
     # Reasignar no cambia los ítems, pero sí puede ser la primera vez que el
@@ -318,6 +365,10 @@ def agregar_items_listado(
     un 404 al sincronizar en vez del 409 que exige la invariante de la cola
     móvil (`resolverSync` reintenta los 404 para siempre). Para quitar ítems se
     sigue usando cancelar el listado y reasignar.
+
+    Tampoco permite agregar ítems que ya estén en OTRO listado activo de esta
+    misma toma: la exclusividad de ítems entre listados activos es lo que
+    reemplaza a la antigua exclusividad por bodega.
     """
     listado = db.get(ListadoConteo, listado_id)
     if not listado:
@@ -330,6 +381,8 @@ def agregar_items_listado(
     if listado.estado != EstadoListado.activo:
         raise HTTPException(status.HTTP_409_CONFLICT, "Solo se pueden agregar ítems a un listado activo")
 
+    _bloquear_toma(db, listado.toma_id)
+
     existentes = set(
         db.scalars(select(ListadoItem.item_id).where(ListadoItem.listado_id == listado_id)).all()
     )
@@ -341,6 +394,16 @@ def agregar_items_listado(
     nuevos = candidatos - existentes
     if not nuevos:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No hay ítems nuevos para agregar")
+
+    conflicto = _conflicto_solape(db, listado.toma_id, nuevos, excluir_listado_id=listado.id)
+    if conflicto:
+        otro, n = conflicto
+        quien = _nombre_dueno(db, otro)
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"No se pueden agregar: {n} de los ítems seleccionados ya están en el listado #{otro.id} "
+            f"de {quien} (activo en esta toma). Quítelos de la selección, o cancele/edite ese listado.",
+        )
 
     db.add_all([ListadoItem(listado_id=listado.id, item_id=iid) for iid in nuevos])
     db.commit()

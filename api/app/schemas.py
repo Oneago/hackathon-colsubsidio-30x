@@ -114,7 +114,8 @@ class ListadoCreate(BaseModel):
     toma_id: int
     bodega_id: int
     supernumerario_id: int
-    # Si es None/omitido, se incluyen todos los ítems de la bodega.
+    # Si es None/omitido, se incluyen todos los ítems DISPONIBLES de la bodega
+    # (los no tomados por otro listado activo de esta toma).
     item_ids: list[int] | None = None
 
 

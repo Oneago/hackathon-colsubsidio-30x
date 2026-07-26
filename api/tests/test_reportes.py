@@ -77,3 +77,30 @@ def test_comparacion_ignora_listados_cancelados(client, admin_token, bodega_test
     assert despues["resumen"]["total_items"] == base["resumen"]["total_items"]
     codigos = [f["codigo_barras"] for f in despues["filas"]]
     assert len(codigos) == len(set(codigos)), "hay ítems repetidos en el informe"
+
+
+def test_comparacion_no_duplica_con_dos_listados_activos_disjuntos(client, admin_token, bodega_test):
+    """Dos supernumerarios contando la misma bodega en paralelo (ítems
+    disjuntos) no deben producir filas duplicadas ni omitidas en el informe."""
+    from tests.test_asignaciones import _abrir_toma
+
+    _, u1 = _crear_usuario(client, admin_token, "supernumerario", [bodega_test])
+    _, u2 = _crear_usuario(client, admin_token, "supernumerario", [bodega_test])
+    toma = _abrir_toma(client, admin_token, bodega_test)
+
+    item_a, item_b = (
+        i["id"] for i in client.get(f"/bodegas/{bodega_test}/items", headers=auth(admin_token)).json()
+    )
+    r1 = client.post("/listados", headers=auth(admin_token), json={
+        "toma_id": toma, "bodega_id": bodega_test, "supernumerario_id": u1["id"], "item_ids": [item_a],
+    })
+    assert r1.status_code == 201, r1.text
+    r2 = client.post("/listados", headers=auth(admin_token), json={
+        "toma_id": toma, "bodega_id": bodega_test, "supernumerario_id": u2["id"], "item_ids": [item_b],
+    })
+    assert r2.status_code == 201, r2.text
+
+    comp = client.get(f"/reportes/comparacion?toma_id={toma}", headers=auth(admin_token)).json()
+    assert comp["resumen"]["total_items"] == 2
+    codigos = [f["codigo_barras"] for f in comp["filas"]]
+    assert len(codigos) == len(set(codigos)) == 2

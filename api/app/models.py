@@ -6,8 +6,10 @@ Notas de diseño clave:
   (Fase 1), no solo en la UI.
 - Regla de roles: supernumerario = exactamente 1 bodega, supervisor = 1..N,
   administrador = todas. Se valida en modelo (constraints) y en la API.
-- `ListadoConteo` usa un índice único parcial para impedir que la misma
-  bodega/toma tenga más de un listado activo (bloqueo de concurrencia).
+- `ListadoConteo` permite varios listados activos por (toma, bodega), uno por
+  supernumerario: el bloqueo de concurrencia (que no se solapen ítems entre
+  ellos) vive en `routers/listados.py` (advisory lock + chequeo por ítem), no
+  en un índice de este modelo.
 """
 import enum
 from datetime import datetime
@@ -26,7 +28,6 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
-    text,
 )
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -182,18 +183,14 @@ class TomaInventario(TimestampMixin, Base):
 
 
 class ListadoConteo(TimestampMixin, Base):
-    """Asignación de conteo a un supernumerario dentro de una toma."""
+    """Asignación de conteo a un supernumerario dentro de una toma.
+
+    Pueden coexistir varios listados ACTIVOS para la misma (toma, bodega),
+    uno por supernumerario, siempre que sus ítems no se solapen. Esa no-
+    superposición se garantiza en `routers/listados.py` (advisory lock +
+    chequeo de conflicto por ítem), no con un índice único de esta tabla.
+    """
     __tablename__ = "listado_conteo"
-    __table_args__ = (
-        # Bloqueo de concurrencia: una sola asignación ACTIVA por (toma, bodega).
-        Index(
-            "uq_listado_activo_toma_bodega",
-            "toma_id",
-            "bodega_id",
-            unique=True,
-            postgresql_where=text("estado = 'activo'"),
-        ),
-    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     toma_id: Mapped[int] = mapped_column(ForeignKey("toma_inventario.id", ondelete="CASCADE"), nullable=False)

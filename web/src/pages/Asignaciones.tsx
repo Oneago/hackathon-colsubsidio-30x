@@ -113,7 +113,7 @@ export function Asignaciones() {
     setAsignSeleccion(new Set());
     setAsignCargandoItems(true);
     endpoints
-      .items(toma.bodega_id)
+      .items(toma.bodega_id, toma.id)
       .then((its) => {
         setAsignItems(its);
         // Todos seleccionados por defecto: el supervisor desmarca lo que no quiere incluir.
@@ -170,11 +170,11 @@ export function Asignaciones() {
     setAgregarSeleccion(new Set());
     setAgregarCandidatos([]);
     setAgregarCargando(true);
-    Promise.all([endpoints.items(listado.bodega_id), endpoints.itemsDeListado(listado.id)])
-      .then(([todos, incluidos]) => {
-        const incluidosIds = new Set(incluidos.map((i) => i.id));
-        setAgregarCandidatos(todos.filter((i) => !incluidosIds.has(i.id)));
-      })
+    // El propio listado ya está activo, así que sus ítems ya cuentan como
+    // "tomados" y el backend los excluye solo: no hace falta restarlos aquí.
+    endpoints
+      .items(listado.bodega_id, listado.toma_id)
+      .then((its) => setAgregarCandidatos(its))
       .catch((err) => setMsg({ tipo: "err", texto: mensajeDeError(err) }))
       .finally(() => setAgregarCargando(false));
   }
@@ -218,10 +218,10 @@ export function Asignaciones() {
   }
 
   const operativas = bodegas.filter((b) => b.es_operativa);
-  // Un listado activo bloquea la bodega en esa toma: la UI lo dice antes de
-  // que el usuario choque contra el 409 del servidor.
-  const activoDe = (tomaId: number) =>
-    listados.find((l) => l.toma_id === tomaId && l.estado === "activo");
+  // Pueden coexistir varios listados activos por toma (uno por supernumerario,
+  // con ítems disjuntos); el backend es quien impide que se solapen.
+  const activosDe = (tomaId: number) =>
+    listados.filter((l) => l.toma_id === tomaId && l.estado === "activo");
 
   return (
     <div className="space-y-6">
@@ -272,7 +272,7 @@ export function Asignaciones() {
           {tomas.map((t) => {
             const susListados = listados.filter((l) => l.toma_id === t.id);
             const sups = supernumerariosDe(t.bodega_id);
-            const activo = activoDe(t.id);
+            const activos = activosDe(t.id);
             return (
               <div key={t.id} className="rounded-lg border p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -312,10 +312,10 @@ export function Asignaciones() {
                   </div>
                 </div>
 
-                {t.estado === "abierta" && !activo && (
+                {t.estado === "abierta" && (
                   <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-3">
                     <Button size="sm" onClick={() => abrirModalAsignar(t)} disabled={sups.length === 0}>
-                      Asignar listado
+                      {activos.length > 0 ? "Asignar otro listado" : "Asignar listado"}
                     </Button>
                     {sups.length === 0 && (
                       <span className="text-xs text-muted-foreground">
@@ -325,39 +325,43 @@ export function Asignaciones() {
                   </div>
                 )}
 
-                {t.estado === "abierta" && activo && (
-                  <div className="mt-3 flex flex-wrap items-center gap-3 border-t pt-3 text-sm">
-                    <span className="text-muted-foreground">
-                      Asignada a <strong className="text-foreground">{activo.supernumerario_nombre}</strong>{" "}
-                      (listado #{activo.id})
-                    </span>
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" onClick={() => abrirModalAgregar(activo)}>
-                        Agregar ítems
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setReasignando(activo);
-                          setDestino("");
-                        }}
-                      >
-                        Reasignar
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          ejecutar(
-                            () => endpoints.actualizarListado(activo.id, { estado: "cancelado" }),
-                            `Listado #${activo.id} cancelado`,
-                          )
-                        }
-                      >
-                        Cancelar listado
-                      </Button>
-                    </div>
+                {activos.length > 0 && (
+                  <div className="mt-3 space-y-2 border-t pt-3 text-sm">
+                    {activos.map((activo) => (
+                      <div key={activo.id} className="flex flex-wrap items-center gap-3">
+                        <span className="text-muted-foreground">
+                          Asignada a <strong className="text-foreground">{activo.supernumerario_nombre}</strong>{" "}
+                          (listado #{activo.id})
+                        </span>
+                        <div className="flex gap-2">
+                          <Button variant="outline" size="sm" onClick={() => abrirModalAgregar(activo)}>
+                            Agregar ítems
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setReasignando(activo);
+                              setDestino("");
+                            }}
+                          >
+                            Reasignar
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() =>
+                              ejecutar(
+                                () => endpoints.actualizarListado(activo.id, { estado: "cancelado" }),
+                                `Listado #${activo.id} cancelado`,
+                              )
+                            }
+                          >
+                            Cancelar listado
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -386,7 +390,7 @@ export function Asignaciones() {
                             {l.contados}/{l.total_items}
                           </TD>
                           <TD className="text-right">
-                            {t.estado === "abierta" && !activo && l.estado === "completado" && (
+                            {t.estado === "abierta" && l.estado === "completado" && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -510,7 +514,9 @@ export function Asignaciones() {
           {asignCargandoItems && <p className="text-sm text-muted-foreground">Cargando ítems…</p>}
           {!asignCargandoItems && asignFiltrados.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              {asignItems.length === 0 ? "Esta bodega no tiene ítems." : "Ningún ítem coincide con la búsqueda."}
+              {asignItems.length === 0
+                ? "No quedan ítems disponibles: esta bodega no tiene ítems, o ya están todos en otro listado activo de esta toma."
+                : "Ningún ítem coincide con la búsqueda."}
             </p>
           )}
           {asignFiltrados.length > 0 && (
@@ -581,7 +587,7 @@ export function Asignaciones() {
           {!agregarCargando && agregarFiltrados.length === 0 && (
             <p className="text-sm text-muted-foreground">
               {agregarCandidatos.length === 0
-                ? "Todos los ítems de la bodega ya están incluidos en este listado."
+                ? "Todos los ítems de la bodega ya están incluidos en este listado o en otro listado activo de esta toma."
                 : "Ningún ítem coincide con la búsqueda."}
             </p>
           )}

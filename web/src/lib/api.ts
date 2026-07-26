@@ -165,7 +165,9 @@ export const endpoints = {
 
   bodegas: (soloOperativas = false) =>
     api.get<Bodega[]>(`/bodegas?solo_operativas=${soloOperativas}`),
-  items: (bodegaId: number) => api.get<Item[]>(`/bodegas/${bodegaId}/items`),
+  /** Si se pasa `tomaId`, excluye los ítems ya cubiertos por un listado activo de esa toma. */
+  items: (bodegaId: number, tomaId?: number) =>
+    api.get<Item[]>(`/bodegas/${bodegaId}/items${tomaId != null ? `?toma_id=${tomaId}` : ""}`),
 
   tomas: () => api.get<Toma[]>("/tomas"),
   abrirToma: (bodega_id: number) => api.post<Toma>("/tomas", { bodega_id }),
@@ -186,8 +188,6 @@ export const endpoints = {
     id: number,
     data: { supernumerario_id?: number; estado?: EstadoListado },
   ) => api.patch<Listado>(`/listados/${id}`, data),
-  /** Ítems ya incluidos en el listado (para no volver a ofrecerlos al agregar). */
-  itemsDeListado: (id: number) => api.get<Item[]>(`/listados/${id}/items`),
   /** Agrega ítems nuevos a un listado activo; no permite quitar los ya incluidos. */
   agregarItemsListado: (id: number, item_ids: number[]) =>
     api.patch<Listado>(`/listados/${id}/items`, { item_ids }),
