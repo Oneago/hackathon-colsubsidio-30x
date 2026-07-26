@@ -86,6 +86,11 @@ export interface Toma {
   estado: "abierta" | "cerrada";
   fecha_apertura: string;
   fecha_cierre: string | null;
+  /** Sello de aprobación tras revisar la comparación. Aceptar no cambia `estado`:
+   *  la toma sigue cerrada. Pedir reconteo lo vuelve a dejar en null. */
+  aceptada_en: string | null;
+  aceptada_por: number | null;
+  aceptada_por_nombre: string | null;
 }
 
 export type EstadoListado = "activo" | "completado" | "cancelado";
@@ -173,6 +178,9 @@ export const endpoints = {
   abrirToma: (bodega_id: number) => api.post<Toma>("/tomas", { bodega_id }),
   cerrarToma: (id: number) => api.post<Toma>(`/tomas/${id}/cerrar`),
   reabrirToma: (id: number) => api.post<Toma>(`/tomas/${id}/reabrir`),
+  aceptarToma: (id: number) => api.post<Toma>(`/tomas/${id}/aceptar`),
+  /** Reabre la toma y revive sus listados, para que vuelvan a la app de campo. */
+  solicitarReconteo: (id: number) => api.post<Toma>(`/tomas/${id}/solicitar-reconteo`),
   eliminarToma: (id: number) => api.delete<void>(`/tomas/${id}`),
 
   listados: (tomaId?: number) =>

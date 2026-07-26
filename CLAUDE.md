@@ -125,7 +125,13 @@ Los enums de dominio son **enums de Postgres** con valores en español (`rol_usu
   acotado a sus bodegas: sin ella el supervisor no puede asignar nada). Ojo con el orden de las
   rutas: va declarada antes que `/usuarios/{usuario_id}` o FastAPI la captura como id.
 - `/bodegas` + `/bodegas/{id}/items` (web, **sí** incluye `cantidad_erp`), `/tomas`
-  (abrir/cerrar/listar), `/listados` (`POST` asignar, `PATCH` reasignar/cancelar).
+  (abrir/cerrar/reabrir/listar/eliminar), `/listados` (`POST` asignar, `PATCH` reasignar/cancelar).
+- Las dos salidas de la comparación, sobre una toma **cerrada**: `POST /tomas/{id}/aceptar` sella
+  la aprobación (`aceptada_en`/`aceptada_por`; **no** es un valor del enum `estado_toma`, la toma
+  sigue `cerrada`) y `POST /tomas/{id}/solicitar-reconteo` la reabre **y revive sus listados
+  `completado`** para que vuelvan a la app de campo. Son excluyentes: reabrir o pedir reconteo
+  anulan la aceptación, porque lo aprobado fue un conteo que va a cambiar. `reabrir` sigue siendo
+  la versión mínima (solo corrige un cierre por error; no toca los listados).
 - `/movil` (solo supernumerario): `mi-listado`, `conteos`, `dictado` (transcribe audio con
   ElevenLabs STT para el dictado de cantidad; 503 si falta la API key, 502 si ElevenLabs falla).
 - `/reportes`: `comparacion` y `comparacion.csv` (Δ absoluto y %, marca de crítico según

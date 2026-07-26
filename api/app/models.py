@@ -180,6 +180,11 @@ class TomaInventario(TimestampMixin, Base):
     )
     fecha_cierre: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     creada_por: Mapped[int | None] = mapped_column(ForeignKey("usuario.id", ondelete="SET NULL"), nullable=True)
+    # Sello de aprobación del supervisor tras revisar la comparación ERP vs. conteo.
+    # No es un estado del ciclo (la toma sigue `cerrada`): es la constancia de que
+    # alguien miró las diferencias y las dio por buenas. Solicitar reconteo lo borra.
+    aceptada_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    aceptada_por: Mapped[int | None] = mapped_column(ForeignKey("usuario.id", ondelete="SET NULL"), nullable=True)
 
 
 class ListadoConteo(TimestampMixin, Base):

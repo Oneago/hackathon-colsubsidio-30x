@@ -1,9 +1,10 @@
-import { Download } from "lucide-react";
+import { CheckCircle2, Download, FileSpreadsheet, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { TBody, TD, TH, THead, TR, Table } from "@/components/ui/table";
@@ -42,6 +43,11 @@ export function Reportes() {
   const [data, setData] = useState<Comparacion | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [confirmando, setConfirmando] = useState<"aceptar" | "reconteo" | null>(null);
+  const [enviando, setEnviando] = useState(false);
+
+  const toma = useMemo(() => tomas.find((t) => t.id === tomaId) ?? null, [tomas, tomaId]);
 
   const bodegaNombre = useMemo(
     () => Object.fromEntries(bodegas.map((b) => [b.id, b.nombre])),
@@ -86,6 +92,11 @@ export function Reportes() {
       .finally(() => setCargando(false));
   }, [tomaId]);
 
+  // Un solo endpoint para los dos botones: el CSV que sirve la API lleva BOM y
+  // separador `;`, así que Excel lo abre con doble clic sin pasar por el asistente
+  // de importación. Son dos botones porque el usuario de negocio busca "Excel" y
+  // el técnico busca "CSV"; el archivo es el mismo y conserva la extensión .csv
+  // (renombrarlo a .xlsx haría que Excel avise de formato inválido al abrirlo).
   async function exportar() {
     if (!data) return;
     try {
@@ -98,6 +109,38 @@ export function Reportes() {
     }
   }
 
+  /** Refresca la toma tras aceptar o pedir reconteo: cambia el estado y, con él,
+   *  qué botones tienen sentido. */
+  function reemplazarToma(actualizada: Toma) {
+    setTomas((prev) => prev.map((t) => (t.id === actualizada.id ? actualizada : t)));
+  }
+
+  async function confirmarAccion() {
+    if (!toma || !confirmando) return;
+    setEnviando(true);
+    setError(null);
+    setAviso(null);
+    try {
+      if (confirmando === "aceptar") {
+        reemplazarToma(await endpoints.aceptarToma(toma.id));
+        setAviso(`Inventario de la toma #${toma.id} aceptado.`);
+      } else {
+        reemplazarToma(await endpoints.solicitarReconteo(toma.id));
+        // Los listados vuelven a estar activos: la vista de asignaciones cambia.
+        setListados(await endpoints.listados());
+        setAviso(
+          `Toma #${toma.id} reabierta. Sus listados volvieron a la app de campo para recontar.`,
+        );
+      }
+      setConfirmando(null);
+    } catch (err) {
+      setError(mensajeDeError(err));
+      setConfirmando(null);
+    } finally {
+      setEnviando(false);
+    }
+  }
+
   const sinTomas = !cargando && !error && tomas.length === 0;
   const sinDatos = data !== null && data.filas.length === 0;
 
@@ -107,6 +150,10 @@ export function Reportes() {
 
       {error && (
         <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+      )}
+
+      {aviso && (
+        <p className="rounded-md bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700">{aviso}</p>
       )}
 
       {sinTomas && (
@@ -134,9 +181,14 @@ export function Reportes() {
             </Select>
           </div>
           {data && !sinDatos && (
-            <Button variant="outline" onClick={exportar}>
-              <Download className="h-4 w-4" /> Exportar CSV
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={exportar}>
+                <FileSpreadsheet className="h-4 w-4" /> Exportar Excel
+              </Button>
+              <Button variant="outline" onClick={exportar}>
+                <Download className="h-4 w-4" /> Exportar CSV
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -158,6 +210,50 @@ export function Reportes() {
             {resumenChip("Pendientes", data.resumen.pendientes)}
             {resumenChip(`Críticos (≥${formatearCantidad(data.resumen.umbral_pct, 1)}%)`, data.resumen.criticos)}
           </div>
+
+          {/* Las dos salidas de la reconciliación. Solo tienen sentido con la toma
+              cerrada: mientras siga abierta, el conteo aún puede cambiar. */}
+          {toma && (
+            <Card>
+              <CardContent className="flex flex-wrap items-center justify-between gap-4 py-4">
+                {toma.aceptada_en ? (
+                  <p className="flex items-center gap-2 text-sm">
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    <span>
+                      Inventario aceptado
+                      {toma.aceptada_por_nombre ? ` por ${toma.aceptada_por_nombre}` : ""} el{" "}
+                      {new Date(toma.aceptada_en).toLocaleString("es-CO")}.
+                    </span>
+                  </p>
+                ) : toma.estado === "abierta" ? (
+                  <p className="text-sm text-muted-foreground">
+                    La toma sigue abierta: aún se aceptan conteos. Ciérrela en «Tomas y
+                    asignaciones» para poder aceptar el inventario o pedir reconteo.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Revise las diferencias y decida: acepte el inventario o devuélvalo a campo.
+                  </p>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={toma.estado !== "cerrada" || enviando}
+                    onClick={() => setConfirmando("reconteo")}
+                  >
+                    <RotateCcw className="h-4 w-4" /> Solicitar reconteo
+                  </Button>
+                  <Button
+                    disabled={toma.estado !== "cerrada" || toma.aceptada_en != null || enviando}
+                    onClick={() => setConfirmando("aceptar")}
+                  >
+                    <CheckCircle2 className="h-4 w-4" /> Aceptar inventario
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
@@ -212,6 +308,44 @@ export function Reportes() {
           </Card>
         </>
       )}
+
+      <ConfirmDialog
+        open={confirmando === "aceptar"}
+        onClose={() => setConfirmando(null)}
+        onConfirm={confirmarAccion}
+        title="¿Aceptar el inventario?"
+        confirmLabel={enviando ? "Aceptando…" : "Aceptar inventario"}
+        description={
+          <>
+            Queda constancia de que usted aprobó el conteo de la toma #{toma?.id} (
+            {data?.bodega_nombre}) con las diferencias que se ven en pantalla.
+            {data && (data.resumen.pendientes > 0 || data.resumen.criticos > 0) && (
+              <span className="mt-2 block font-medium text-destructive">
+                Ojo: hay {data.resumen.pendientes} ítem(s) sin contar y {data.resumen.criticos}{" "}
+                con diferencia crítica. Si esperaba cuadrarlos, pida reconteo en vez de aceptar.
+              </span>
+            )}
+          </>
+        }
+      />
+
+      <ConfirmDialog
+        open={confirmando === "reconteo"}
+        onClose={() => setConfirmando(null)}
+        onConfirm={confirmarAccion}
+        title="¿Solicitar reconteo?"
+        confirmLabel={enviando ? "Solicitando…" : "Solicitar reconteo"}
+        description={
+          <>
+            La toma #{toma?.id} ({data?.bodega_nombre}) vuelve a abrirse y sus listados regresan
+            a la app de campo, para que el supernumerario cuente de nuevo.
+            <span className="mt-2 block">
+              No se borra nada de lo ya contado: cada recuento suma un intento y vale el último.
+              Si el inventario estaba aceptado, la aceptación se anula.
+            </span>
+          </>
+        }
+      />
     </div>
   );
 }

@@ -107,6 +107,9 @@ class TomaRead(BaseModel):
     estado: EstadoToma
     fecha_apertura: datetime
     fecha_cierre: datetime | None
+    aceptada_en: datetime | None = None
+    aceptada_por: int | None = None
+    aceptada_por_nombre: str | None = None
 
 
 # ── Listado de conteo (asignación) ──────────────────────────
